@@ -50,6 +50,9 @@ from os import walk, remove
 from os.path import split, join, exists
 from multiprocessing import cpu_count, Pool
 from math import pi, sin, log, tan, atan, sinh, degrees
+import math
+import os
+import re
 try:
     from PIL.Image import open as IOPEN
 except ImportError:
@@ -60,6 +63,137 @@ except ImportError:
 # Options are mixed, jpeg, and png
 IMAGE_TYPES = '.png', '.jpeg', '.jpg'
 
+class GPSConverter(object):
+    '''
+    GPS Converter class which is able to perform convertions between the
+    CH1903 and WGS84 system.
+    '''
+    # Convert CH y/x/h to WGS height
+    def CHtoWGSheight(self, y, x, h):
+        # Axiliary values (% Bern)
+        y_aux = (y - 600000) / 1000000
+        x_aux = (x - 200000) / 1000000
+        h = (h + 49.55) - (12.60 * y_aux) - (22.64 * x_aux)
+        return h
+
+    # Convert CH y/x to WGS lat
+    def CHtoWGSlat(self, y, x):
+        # Axiliary values (% Bern)
+        y_aux = (y - 600000) / 1000000
+        x_aux = (x - 200000) / 1000000
+        lat = (16.9023892 + (3.238272 * x_aux)) + \
+                - (0.270978 * pow(y_aux, 2)) + \
+                - (0.002528 * pow(x_aux, 2)) + \
+                - (0.0447 * pow(y_aux, 2) * x_aux) + \
+                - (0.0140 * pow(x_aux, 3))
+        # Unit 10000" to 1" and convert seconds to degrees (dec)
+        lat = (lat * 100) / 36
+        return lat
+
+    # Convert CH y/x to WGS long
+    def CHtoWGSlng(self, y, x):
+        # Axiliary values (% Bern)
+        y_aux = (y - 600000) / 1000000
+        x_aux = (x - 200000) / 1000000
+        lng = (2.6779094 + (4.728982 * y_aux) + \
+                + (0.791484 * y_aux * x_aux) + \
+                + (0.1306 * y_aux * pow(x_aux, 2))) + \
+                - (0.0436 * pow(y_aux, 3))
+        # Unit 10000" to 1" and convert seconds to degrees (dec)
+        lng = (lng * 100) / 36
+        return lng
+
+    # Convert decimal angle (? dec) to sexagesimal angle (dd.mmss,ss)
+    def DecToSexAngle(self, dec):
+        degree = int(math.floor(dec))
+        minute = int(math.floor((dec - degree) * 60))
+        second = (((dec - degree) * 60) - minute) * 60
+        return degree + (float(minute) / 100) + (second / 10000)
+
+    # Convert sexagesimal angle (dd.mmss,ss) to seconds
+    def SexAngleToSeconds(self, dms):
+        degree = 0
+        minute = 0
+        second = 0
+        degree = math.floor(dms)
+        minute = math.floor((dms - degree) * 100)
+        second = (((dms - degree) * 100) - minute) * 100
+        return second + (minute * 60) + (degree * 3600)
+
+    # Convert sexagesimal angle (dd.mmss) to decimal angle (degrees)
+    def SexToDecAngle(self, dms):
+        degree = 0
+        minute = 0
+        second = 0
+        degree = math.floor(dms)
+        minute = math.floor((dms - degree) * 100)
+        second = (((dms - degree) * 100) - minute) * 100
+        return degree + (minute / 60) + (second / 3600)
+
+    # Convert WGS lat/long (? dec) and height to CH h
+    def WGStoCHh(self, lat, lng, h):
+        lat = self.DecToSexAngle(lat)
+        lng = self.DecToSexAngle(lng)
+        lat = self.SexAngleToSeconds(lat)
+        lng = self.SexAngleToSeconds(lng)
+        # Axiliary values (% Bern)
+        lat_aux = (lat - 169028.66) / 10000
+        lng_aux = (lng - 26782.5) / 10000
+        h = (h - 49.55) + (2.73 * lng_aux) + (6.94 * lat_aux)
+        return h
+
+    # Convert WGS lat/long (? dec) to CH x
+    def WGStoCHx(self, lat, lng):
+        lat = self.DecToSexAngle(lat)
+        lng = self.DecToSexAngle(lng)
+        lat = self.SexAngleToSeconds(lat)
+        lng = self.SexAngleToSeconds(lng)
+        # Axiliary values (% Bern)
+        lat_aux = (lat - 169028.66) / 10000
+        lng_aux = (lng - 26782.5) / 10000
+        x = ((200147.07 + (308807.95 * lat_aux) + \
+            + (3745.25 * pow(lng_aux, 2)) + \
+            + (76.63 * pow(lat_aux,2))) + \
+            - (194.56 * pow(lng_aux, 2) * lat_aux)) + \
+            + (119.79 * pow(lat_aux, 3))
+        return x
+
+	# Convert WGS lat/long (? dec) to CH y
+    def WGStoCHy(self, lat, lng):
+        lat = self.DecToSexAngle(lat)
+        lng = self.DecToSexAngle(lng)
+        lat = self.SexAngleToSeconds(lat)
+        lng = self.SexAngleToSeconds(lng)
+        # Axiliary values (% Bern)
+        lat_aux = (lat - 169028.66) / 10000
+        lng_aux = (lng - 26782.5) / 10000
+        y = (600072.37 + (211455.93 * lng_aux)) + \
+            - (10938.51 * lng_aux * lat_aux) + \
+            - (0.36 * lng_aux * pow(lat_aux, 2)) + \
+            - (44.54 * pow(lng_aux, 3))
+        return y
+
+    def LV03toWGS84(self, east, north, height):
+        '''
+        Convert LV03 to WGS84 Return a array of double that contain lat, long,
+        and height
+        '''
+        d = []
+        d.append(self.CHtoWGSlat(east, north))
+        d.append(self.CHtoWGSlng(east, north))
+        d.append(self.CHtoWGSheight(east, north, height))
+        return d
+
+    def WGS84toLV03(self, latitude, longitude, ellHeight):
+        '''
+        Convert WGS84 to LV03 Return an array of double that contaign east,
+        north, and height
+        '''
+        d = []
+        d.append(self.WGStoCHy(latitude, longitude))
+        d.append(self.WGStoCHx(latitude, longitude))
+        d.append(self.WGStoCHh(latitude, longitude, ellHeight))
+        return d
 
 class Mercator(object):
     """
@@ -360,6 +494,153 @@ class ScaledWorldMercator(EllipsoidalMercator):
         # Instituting a 2 decimal place round to ensure accuracy
         return meters_x, round(meters_y, 2)
 
+class SwissTM_LV03:
+    tile_size = 256
+    top_left = [420000.0, 350000.0]
+    scales = [[14285750.5715, [1,1]],
+                                  [13392891.1608, [1,1]],[12500031.7501, [1,1]],[11607172.3393, [1,1]],
+                                  [10714312.9286, [1,1]],[9821453.51791, [1,1]],[8928594.10719, [1,1]],
+                                  [8035734.69647, [1,1]],[7142875.28575, [1,1]],[6250015.87503, [2,1]],
+                                  [5357156.46431, [2,1]],[4464297.05359, [2,1]],[3571437.64288, [2,2]],
+                                  [2678578.23216, [3,2]],[2321434.46787, [3,2]],[1785718.82144, [4,3]],
+                                  [892859.410719, [8,5]],[357143.764288, [19,13]],[178571.882144, [38,25]],
+                                  [71428.7528575, [94,63]],[35714.3764288, [188,125]],[17857.1882144, [375,250]],
+                                  [8928.59410719, [750,500]],[7142.87528575, [938,625]],[5357.15646431, [1250,834]],
+                                  [3571.43764288, [1875,1250]],[1785.71882144, [3750,2500]], [892.857, [7500,5000]], [357.1425, [18750,12500]]]
+
+    #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
+    stdRdrPixelSize=0.00028
+
+class SwissTM_ESRI_LV03:
+    tile_size = 256
+    top_left = [-29386400, 30814500]
+    scales =   [[8000000, [55+1,56+1]],
+                                 [4000000, [110+2,112+2]],
+                                  [2000000, [220+4,225+3]],
+                                  [1000000, [440+7,450+5]],
+                                  [500000, [880+13,900+9]],
+                                  [250000, [1761+25,1801+16]],
+                                  [125000, [3522+50,3603+31]]]
+    # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
+    stdRdrPixelSize=0.000264583862501058376
+
+
+class CH1903LV03(object):
+    """
+    Mercator projection class that holds specific calculations and formulas
+    for EPSG21781.
+    """
+
+    converter = GPSConverter()
+
+    def __init__(self):
+        """
+        Constructor
+        https://api3.geo.admin.ch/1.0.0/WMTSCapabilities.xml
+        https://gist.github.com/atlefren/c41921d64a2636c9598e
+        """
+        self.tile_matrix = None
+
+    def setTileMatrix(self, tile_matrix):
+        self.tile_matrix = tile_matrix
+        self.tile_size = tile_matrix.tile_size
+        #self.pixel_size = tile_matrix.pixel_size
+
+    @staticmethod
+    def invert_y(z, y):
+        """
+        Inverts the Y tile value.
+
+        Inputs:
+        z -- the zoom level associated with the tile
+        y -- the Y tile number
+
+        Returns:
+        The flipped tile value
+        """
+        return (1 << z) - y - 1
+
+    @staticmethod
+    def tile_to_lat_lon(z, x, y):
+        """
+        Returns the lat/lon coordinates of the bottom-left corner of the input
+        tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+##        meters_x = CH1903LV03.tilematrix_tlc[0] + x * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
+##        meters_y = CH1903LV03.tilematrix_tlc[1] - (y + 1) * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
+
+        meters_x = this.tile_matrix.top_left[0] + x * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
+        meters_y = this.tile_matrix.top_left[1] - (y + 1) * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
+
+        lat = CH1903LV03.converter.CHtoWGSlat(meters_x, meters_y)
+        lon = CH1903LV03.converter.CHtoWGSlng(meters_x, meters_y)
+
+        return lat, lon
+
+    def tile_to_meters(self, z, x, y):
+        """
+        Returns the meter coordinates of the bottom-left corner of the input
+        tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+
+        # Mercator Upper left, add 1 to both x and y to get Lower right
+##        meters_x = CH1903LV03.tilematrix_tlc[0] + x * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
+##        meters_y = CH1903LV03.tilematrix_tlc[1] - (y + 1) * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
+
+        meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+        meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+
+        return meters_x, meters_y
+
+##    @staticmethod
+##    def lat_to_northing(lat):
+##        """
+##        Convert a latitude to a northing
+##        """
+##        meters_y = CH1903LV03.converter.WGStoCHy(46.8, lat)
+##        return meters_y
+
+
+    #@staticmethod
+    def pixel_size(self, z):
+        """
+        Returns the pixel resolution of the input zoom level.
+
+        Inputs:
+        z -- zoom level value for the input tile
+        """
+        return self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] / self.tile_matrix.tile_size
+
+    def get_coord(self, z, x, y):
+        """
+        Returns the coordinates (in meters) of the bottom-left corner of the
+        input tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+        return self.tile_to_meters(z, x, y)
+
+    @staticmethod
+    def truncate(coord):
+        """
+        Formats a coordinate to within an acceptable degree of accuracy (2
+        decimal places for mercator).
+        """
+        return '%.2f' % (int(coord*100)/float(100))
+
 
 class ZoomMetadata(object):
 
@@ -483,7 +764,7 @@ class Geopackage(object):
         """With-statement caller"""
         return self
 
-    def __init__(self, file_path, srs):
+    def __init__(self, file_path, srs, tile_matrix):
         """Constructor."""
         self.__file_path = file_path
         self.__srs = srs
@@ -493,10 +774,18 @@ class Geopackage(object):
             self.__projection = EllipsoidalMercator()
         elif self.__srs == 9804:
             self.__projection = ScaledWorldMercator()
+        elif self.__srs == 21781:
+            self.__projection = CH1903LV03()
         else:
             self.__projection = Geodetic()
         self.__db_con = connect(self.__file_path)
         self.__create_schema()
+
+        #setup tile matrix if specified
+        if tile_matrix == "swiss_lv03":
+            self.__projection.setTileMatrix(SwissTM_LV03())
+        elif tile_matrix == "swiss_esri_lv03":
+            self.__projection.setTileMatrix(SwissTM_ESRI_LV03())
 
     def __create_schema(self):
         """Create default geopackage schema on the database."""
@@ -622,6 +911,37 @@ class Geopackage(object):
                     definition)
                 VALUES (3395, ?, 3395, ?, ?)
             """, ("epsg", "WGS 84 / World Mercator", wkt))
+
+            wkt = """
+                PROJCS["CH1903 / LV03",GEOGCS["CH1903",
+                DATUM["CH1903",SPHEROID["Bessel 1841",6377397.155,299.1528128,
+                AUTHORITY["EPSG","7004"]],TOWGS84[674.374,15.056,405.346,0,0,0,0],
+                AUTHORITY["EPSG","6149"]],
+                PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],
+                UNIT["degree",0.01745329251994328,
+                AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4149"]],
+                UNIT["metre",1,AUTHORITY["EPSG","9001"]],
+                PROJECTION["Hotine_Oblique_Mercator"],
+                PARAMETER["latitude_of_center",46.95240555555556],
+                PARAMETER["longitude_of_center",7.439583333333333],
+                PARAMETER["azimuth",90],
+                PARAMETER["rectified_grid_angle",90],
+                PARAMETER["scale_factor",1],
+                PARAMETER["false_easting",600000],
+                PARAMETER["false_northing",200000],
+                AUTHORITY["EPSG","21781"],
+                AXIS["Y",EAST],AXIS["X",NORTH]]
+            """
+            cursor.execute("""
+                INSERT INTO gpkg_spatial_ref_sys (
+                    srs_id,
+                    organization,
+                    organization_coordsys_id,
+                    srs_name,
+                    definition)
+                VALUES (21781, ?, 21781, ?, ?)
+            """, ("epsg", "CH1903 / LV03 -- Swiss CH1903 / LV03", wkt))
+
             wkt = """
                 PROJCS["unnamed",GEOGCS["WGS 84",
                 DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,
@@ -734,6 +1054,9 @@ class Geopackage(object):
             #top_level.min_y = self.__projection.truncate(top_level.min_y)
             #top_level.max_x = self.__projection.truncate(top_level.max_x)
             #top_level.max_y = self.__projection.truncate(top_level.max_y)
+            #
+            #What is this?!?
+            #
             top_level.min_x = top_level.min_x
             top_level.min_y = top_level.min_y
             top_level.max_x = top_level.max_x
@@ -767,6 +1090,9 @@ class Geopackage(object):
             query = "attach '" + source + "' as source;"
             cursor.execute(query)
             try:
+                #
+                # fix this pls
+                #
                 cursor.execute("""INSERT OR REPLACE INTO tiles
                 (zoom_level, tile_column, tile_row, tile_data)
                 SELECT zoom_level, tile_column, tile_row, tile_data
@@ -782,7 +1108,7 @@ class Geopackage(object):
         """Resource cleanup on destruction."""
         self.__db_con.close()
 
- 
+
 class TempDB(object):
     """
     Returns a temporary sqlite database to hold tiles for async workers.
@@ -847,9 +1173,10 @@ class TempDB(object):
         y -- the column number of the data
         data -- the image data containing in a binary array
         """
+        #fixed order column/row -> y,x RB
         with self.__db_con as db_con:
             cursor = db_con.cursor()
-            cursor.execute(self.image_blob_stmt, (z, x, y, data))
+            cursor.execute(self.image_blob_stmt, (z, y, x, data))
 
     def __exit__(self, type, value, traceback):
         """Resource cleanup on destruction."""
@@ -915,7 +1242,7 @@ def img_has_transparency(img):
     return False
 
 
-def file_count(base_dir):
+def file_count(base_dir, max_level):
     """
     A function that finds all image tiles in a base directory.  The base
     directory should be arranged in TMS format, i.e. z/x/y.
@@ -932,9 +1259,19 @@ def file_count(base_dir):
     # Avoiding dots (functional references) will increase performance of
     #  the loop because they will not be reevaluated each iteration.
     for root, sub_folders, files in walk(base_dir):
-        temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
-        file_list += temp_list
-    print("Found {} total tiles.".format(len(file_list)))
+        #check the level
+        lv = -1
+        if len(root) > len(base_dir):
+            lvStr = root[len(base_dir)+1:]
+            if lvStr.startswith("L"):
+               lvStr = lvStr[1:]
+            m = re.search("\d*|L\d*", lvStr)
+            if m:
+                lv = m.group()
+        if int(lv) <= max_level or max_level == -1:
+            temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
+            file_list += temp_list
+    print("Found {} total tiles (max level:{}).".format(len(file_list), max_level))
     return [split_all(item) for item in file_list]
 
 
@@ -951,13 +1288,28 @@ def split_all(path):
     """
     parts = []
     full_path = path
+    is_esri = 0
     # Parse out the tms coordinates
     for i in xrange(3):
         head, tail = split(path)
-        parts.append(tail)
+        #handle Esri Cache (Row Column)
+        if tail.startswith("R") or tail.startswith("C"):
+            parts.append(tail[1:])
+            is_esri = 1
+        #handle Esri Cache Level
+        elif tail.startswith("L"):
+            parts.append(tail[1:])
+            is_esri = 1
+        #TMS, WMTS Cache
+        else:
+            parts.append(tail)
         path = head
-    file_dict = dict(y=int(parts[0].split('.')[0]), x=int(parts[1]),
-            z=int(parts[2]), path=full_path)
+
+    if not is_esri:
+        file_dict = dict(y=int(parts[0].split('.')[0]), x=int(parts[1]),z=int(parts[2]), path=full_path)
+    else:
+        #handle Esri Cache
+        file_dict = dict(y=int(parts[0].split('.')[0], 16), x=int(parts[1], 16),z=int(parts[2]), path=full_path)
     return file_dict
 
 
@@ -1028,6 +1380,8 @@ def sqlite_worker(file_list, extra_args):
                 invert_y = EllipsoidalMercator.invert_y
             elif extra_args['srs'] == 9804:
                 invert_y = ScaledWorldMercator.invert_y
+            elif extra_args['srs'] == 21781:
+                invert_y = CH1903LV03.invert_y
         [worker_map(temp_db, item, extra_args, invert_y) for item in file_list]
 
 
@@ -1047,7 +1401,7 @@ def allocate(cores, pool, file_list, extra_args):
         return head + tail
 
 
-def build_lut(file_list, lower_left, srs):
+def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
     """
     Build a lookup table that aids in metadata generation.
 
@@ -1067,8 +1421,17 @@ def build_lut(file_list, lower_left, srs):
         projection = Geodetic()
     elif srs == 9804:
         projection = ScaledWorldMercator()
+    elif srs == 21781:
+        projection = CH1903LV03()
     else:
         projection = EllipsoidalMercator()
+
+    #setup tile matrix if specified
+    if tile_matrix == "swiss_lv03":
+        projection.setTileMatrix(SwissTM_LV03())
+    elif tile_matrix == "swiss_esri_lv03":
+        projection.setTileMatrix(SwissTM_ESRI_LV03())
+
     # Create a list of zoom levels from the base directory
     zoom_levels = list(set([int(item['z']) for item in file_list]))
     zoom_levels.sort()
@@ -1084,16 +1447,24 @@ def build_lut(file_list, lower_left, srs):
         # placed into a geopackage.
         # To fix, is there a zoom level preceding this one...
         if zoom - 1 in [item for item in zoom_levels if item == (zoom - 1)]:
-            # there is, now retrieve it....
-            (prev,) = ([item for item in matrix if item.zoom == (zoom - 1)])
-            # and fix the grid alignment values
-            level.min_tile_row = 2 * prev.min_tile_row
-            level.min_tile_col = 2 * prev.min_tile_col
-            level.max_tile_row = 2 * prev.max_tile_row + 1
-            level.max_tile_col = 2 * prev.max_tile_col + 1
             # Calculate the width and height
-            level.matrix_width = prev.matrix_width * 2
-            level.matrix_height = prev.matrix_height * 2
+            try:
+                level.matrix_width = projection.tile_matrix.scales[level.zoom][1][0]
+                level.matrix_height = projection.tile_matrix.scales[level.zoom][1][1]
+                level.min_tile_row = 0
+                level.min_tile_col = 0
+                level.max_tile_row = level.matrix_height
+                level.max_tile_col = level.matrix_width
+            except:
+                # there is, now retrieve it....
+                (prev,) = ([item for item in matrix if item.zoom == (zoom - 1)])
+                # and fix the grid alignment values
+                level.min_tile_row = 2 * prev.min_tile_row
+                level.min_tile_col = 2 * prev.min_tile_col
+                level.max_tile_row = 2 * prev.max_tile_row + 1
+                level.max_tile_col = 2 * prev.max_tile_col + 1
+                level.matrix_width = prev.matrix_width * 2
+                level.matrix_height = prev.matrix_height * 2
         else:
             # Get all possible x and y values...
             x_vals = [int(item['x']) for item in file_list
@@ -1103,27 +1474,48 @@ def build_lut(file_list, lower_left, srs):
             # then get the min/max values for each.
             level.min_tile_row, level.max_tile_row = min(x_vals), max(x_vals)
             level.min_tile_col, level.max_tile_col = min(y_vals), max(y_vals)
+
             # Fill in the matrix width and height for this top level
-            x_width_max = max([item['x'] for item in file_list
-                               if item['z'] == level.zoom])
-            x_width_min = min([item['x'] for item in file_list
-                               if item['z'] == level.zoom])
-            level.matrix_width = (x_width_max - x_width_min) + 1
-            y_height_max = max([item['y'] for item in file_list
-                               if item['z'] == level.zoom])
-            y_height_min = min([item['y'] for item in file_list
-                               if item['z'] == level.zoom])
-            level.matrix_height = (y_height_max - y_height_min) + 1
+            try:
+                level.matrix_width = projection.tile_matrix.scales[level.zoom][1][0]
+                level.matrix_height = projection.tile_matrix.scales[level.zoom][1][1]
+                level.min_tile_row = 0
+                level.min_tile_col = 0
+                level.max_tile_row = level.matrix_height - 1
+                level.max_tile_col = level.matrix_width - 1
+            except:
+                x_width_max = max([item['x'] for item in file_list
+                                   if item['z'] == level.zoom])
+                x_width_min = min([item['x'] for item in file_list
+                                   if item['z'] == level.zoom])
+                level.matrix_width = (x_width_max - x_width_min) + 1
+                y_height_max = max([item['y'] for item in file_list
+                                   if item['z'] == level.zoom])
+                y_height_min = min([item['y'] for item in file_list
+                                   if item['z'] == level.zoom])
+                level.matrix_height = (y_height_max - y_height_min) + 1
         if lower_left:
             # TMS-style tile grid, so to calc the top left corner of the grid,
             # you must get the min x (row) value and the max y (col) value + 1.
             # You are adding 1 to the y value because the math to calc the
             # coord assumes you want the bottom left corner, not the top left.
             # Similarly, to get the bottom right corner, add 1 to x value.
+            #
+            #ORIGINAL
+            #
+##            level.min_x, level.max_y = projection.get_coord(
+##                level.zoom, level.min_tile_row, level.max_tile_col + 1)
+##            level.max_x, level.min_y = projection.get_coord(
+##                level.zoom, level.max_tile_row + 1, level.min_tile_col)
+
+            #
+            # Modified by bam: column shd come first, then row: lat,long
+            #
             level.min_x, level.max_y = projection.get_coord(
-                level.zoom, level.min_tile_row, level.max_tile_col + 1)
+                level.zoom, level.max_tile_col + 1, level.min_tile_row)
             level.max_x, level.min_y = projection.get_coord(
-                level.zoom, level.max_tile_row + 1, level.min_tile_col)
+                level.zoom, level.min_tile_col, level.max_tile_row + 1)
+
         else:
             # WMTS-style tile grid, so to calc the top left corner of the grid,
             # you must get the min x (row value and the min y (col) value + 1.
@@ -1131,12 +1523,27 @@ def build_lut(file_list, lower_left, srs):
             # coord assumes you want the bottom left corner, not the top left.
             # Similarly, to get the bottom right corner, add 1 to x value.
             # -- Since this is WMTS, we must invert the Y axis before we calc
-            inv_min_y = projection.invert_y(level.zoom, level.min_tile_col)
-            inv_max_y = projection.invert_y(level.zoom, level.max_tile_col)
+
+            # its not more required I guess
+            #inv_min_y = projection.invert_y(level.zoom, level.min_tile_col)
+            #inv_max_y = projection.invert_y(level.zoom, level.max_tile_col)
+
+            #
+            #ORIGINAL
+            #
+
+            #inv_min_y = projection.invert_y(level.zoom, level.min_tile_col)
+            #inv_max_y = projection.invert_y(level.zoom, level.max_tile_col)
+
+            #level.min_x, level.max_y = projection.get_coord(
+            #    level.zoom, level.min_tile_row, inv_min_y + 1)
+            #level.max_x, level.min_y = projection.get_coord(
+            #    level.zoom, level.max_tile_row + 1, inv_max_y)
+
             level.min_x, level.max_y = projection.get_coord(
-                level.zoom, level.min_tile_row, inv_min_y + 1)
+                level.zoom, level.min_tile_col, level.min_tile_row - 1)
             level.max_x, level.min_y = projection.get_coord(
-                level.zoom, level.max_tile_row + 1, inv_max_y)
+                level.zoom, level.max_tile_col + 1, level.max_tile_row)
         # Finally, add this ZoomMetadata object to the list
         matrix.append(level)
     return matrix
@@ -1185,18 +1592,25 @@ def main(arg_list):
     arg_list -- an ArgumentParser object containing command-line options and
     flags
     """
+    #Is a max level specified
+    max_level = arg_list.maxlvl
+
     # Build the file dictionary
-    files = file_count(arg_list.source_folder)
+    files = file_count(arg_list.source_folder, max_level)
     if len(files) == 0:
         # If there are no files, exit the script
         print(" Ensure the correct source tile directory was specified.")
         exit(1)
+
+    # Is a tilematrix specified?
+    tile_matrix=arg_list.tm
+
     # Is the input tile grid aligned to lower-left or not?
     lower_left = arg_list.tileorigin == 'll' or arg_list.tileorigin == 'sw'
     # Get the output file destination directory
     root_dir, _ = split(arg_list.output_file)
     # Build the tile matrix info object
-    tile_info = build_lut(files, lower_left, arg_list.srs)
+    tile_info = build_lut(files, lower_left, arg_list.srs, max_level, tile_matrix)
     # Initialize the output file
     if arg_list.threading:
         # Enable tiling on multiple CPU cores
@@ -1240,7 +1654,7 @@ def main(arg_list):
                 imagery=arg_list.imagery, jpeg_quality=arg_list.q)
         sqlite_worker(files, extra_args)
     # Combine the individual temp databases into the output file
-    with Geopackage(arg_list.output_file, arg_list.srs) as gpkg:
+    with Geopackage(arg_list.output_file, arg_list.srs, tile_matrix) as gpkg:
         combine_worker_dbs(gpkg)
         # Using the data in the output file, create the metadata for it
         gpkg.update_metadata(tile_info)
@@ -1262,9 +1676,15 @@ if __name__ == '__main__':
             help="Tile point of origin location. Valid options " +
             "are ll, ul, nw, or sw.", choices=["ll", "ul", "sw", "nw"],
             default="ll")
+    PARSER.add_argument("-maxlvl", metavar="max_level", type=int, default=-1,
+            help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
+            choices=list(range(100)))
+    PARSER.add_argument("-tm", metavar="tile_matrix", default="",
+            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_esri_lv03",
+            choices=["swiss_lv03", "swiss_esri_lv03"])
     PARSER.add_argument("-srs", metavar="srs", help="Spatial reference " +
             "system. Valid options are 3857, 4326, 3395, and 9804.",
-            type=int, choices=[3857, 4326, 3395, 9804], default=3857)
+            type=int, choices=[3857, 4326, 3395, 9804, 21781], default=3857)
     PARSER.add_argument("-imagery", metavar="imagery",
             help="Imagery type. Valid options are mixed, " +
             "jpeg, png, or source.", choices=["mixed", "jpeg", "png", "source"],
