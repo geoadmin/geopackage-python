@@ -508,6 +508,21 @@ class SwissTM_LV03:
                                   [8928.59410719, [750,500]],[7142.87528575, [938,625]],[5357.15646431, [1250,834]],
                                   [3571.43764288, [1875,1250]],[1785.71882144, [3750,2500]], [892.857, [7500,5000]], [357.1425, [18750,12500]]]
 
+class SwissTM_LV95:
+    tile_size = 256
+    top_left = [2420000.0, 1350000.0]
+    scales = [[14285750.5715, [1,1]],
+                                  [13392891.1608, [1,1]],[12500031.7501, [1,1]],[11607172.3393, [1,1]],
+                                  [10714312.9286, [1,1]],[9821453.51791, [1,1]],[8928594.10719, [1,1]],
+                                  [8035734.69647, [1,1]],[7142875.28575, [1,1]],[6250015.87503, [2,1]],
+                                  [5357156.46431, [2,1]],[4464297.05359, [2,1]],[3571437.64288, [2,2]],
+                                  [2678578.23216, [3,2]],[2321434.46787, [3,2]],[1785718.82144, [4,3]],
+                                  [892859.410719, [8,5]],[357143.764288, [19,13]],[178571.882144, [38,25]],
+                                  [71428.7528575, [94,63]],[35714.3764288, [188,125]],[17857.1882144, [375,250]],
+                                  [8928.59410719, [750,500]],[7142.87528575, [938,625]],[5357.15646431, [1250,834]],
+                                  [3571.43764288, [1875,1250]],[1785.71882144, [3750,2500]], [892.857, [7500,5000]], [357.1425, [18750,12500]]]
+
+
     #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
     stdRdrPixelSize=0.00028
 
@@ -544,7 +559,6 @@ class CH1903LV03(object):
     def setTileMatrix(self, tile_matrix):
         self.tile_matrix = tile_matrix
         self.tile_size = tile_matrix.tile_size
-        #self.pixel_size = tile_matrix.pixel_size
 
     @staticmethod
     def invert_y(z, y):
@@ -571,9 +585,6 @@ class CH1903LV03(object):
         x -- tile column (longitude) value for input tile
         y -- tile row (latitude) value for input tile
         """
-##        meters_x = CH1903LV03.tilematrix_tlc[0] + x * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
-##        meters_y = CH1903LV03.tilematrix_tlc[1] - (y + 1) * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
-
         meters_x = this.tile_matrix.top_left[0] + x * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
         meters_y = this.tile_matrix.top_left[1] - (y + 1) * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
 
@@ -594,21 +605,110 @@ class CH1903LV03(object):
         """
 
         # Mercator Upper left, add 1 to both x and y to get Lower right
-##        meters_x = CH1903LV03.tilematrix_tlc[0] + x * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
-##        meters_y = CH1903LV03.tilematrix_tlc[1] - (y + 1) * CH1903LV03.tile_size * CH1903LV03.stdRdrPixelSize * CH1903LV03.tilematrix_scales[z][0]
-
         meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
         meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
 
         return meters_x, meters_y
 
-##    @staticmethod
-##    def lat_to_northing(lat):
-##        """
-##        Convert a latitude to a northing
-##        """
-##        meters_y = CH1903LV03.converter.WGStoCHy(46.8, lat)
-##        return meters_y
+    #@staticmethod
+    def pixel_size(self, z):
+        """
+        Returns the pixel resolution of the input zoom level.
+
+        Inputs:
+        z -- zoom level value for the input tile
+        """
+        return self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] / self.tile_matrix.tile_size
+
+    def get_coord(self, z, x, y):
+        """
+        Returns the coordinates (in meters) of the bottom-left corner of the
+        input tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+        return self.tile_to_meters(z, x, y)
+
+    @staticmethod
+    def truncate(coord):
+        """
+        Formats a coordinate to within an acceptable degree of accuracy (2
+        decimal places for mercator).
+        """
+        return '%.2f' % (int(coord*100)/float(100))
+
+class CH1903pLV95(object):
+    """
+    Mercator projection class that holds specific calculations and formulas
+    for EPSG2056.
+    """
+
+    converter = GPSConverter()
+
+    def __init__(self):
+        """
+        Constructor
+        https://api3.geo.admin.ch/1.0.0/WMTSCapabilities.xml
+        https://gist.github.com/atlefren/c41921d64a2636c9598e
+        """
+        self.tile_matrix = None
+
+    def setTileMatrix(self, tile_matrix):
+        self.tile_matrix = tile_matrix
+        self.tile_size = tile_matrix.tile_size
+
+    @staticmethod
+    def invert_y(z, y):
+        """
+        Inverts the Y tile value.
+
+        Inputs:
+        z -- the zoom level associated with the tile
+        y -- the Y tile number
+
+        Returns:
+        The flipped tile value
+        """
+        return (1 << z) - y - 1
+
+    @staticmethod
+    def tile_to_lat_lon(z, x, y):
+        """
+        Returns the lat/lon coordinates of the bottom-left corner of the input
+        tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+        meters_x = this.tile_matrix.top_left[0] + x * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0] - 2000000
+        meters_y = this.tile_matrix.top_left[1] - (y + 1) * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0] - 1000000
+
+        lat = CH1903LV03.converter.CHtoWGSlat(meters_x, meters_y)
+        lon = CH1903LV03.converter.CHtoWGSlng(meters_x, meters_y)
+
+        return lat, lon
+
+    def tile_to_meters(self, z, x, y):
+        """
+        Returns the meter coordinates of the bottom-left corner of the input
+        tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+
+        # Mercator Upper left, add 1 to both x and y to get Lower right
+        meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+        meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+
+        return meters_x, meters_y
 
 
     #@staticmethod
@@ -776,6 +876,8 @@ class Geopackage(object):
             self.__projection = ScaledWorldMercator()
         elif self.__srs == 21781:
             self.__projection = CH1903LV03()
+        elif self.__srs == 2056:
+            self.__projection = CH1903pLV95()
         else:
             self.__projection = Geodetic()
         self.__db_con = connect(self.__file_path)
@@ -784,6 +886,8 @@ class Geopackage(object):
         #setup tile matrix if specified
         if tile_matrix == "swiss_lv03":
             self.__projection.setTileMatrix(SwissTM_LV03())
+        elif tile_matrix == "swiss_lv95":
+            self.__projection.setTileMatrix(SwissTM_LV95())
         elif tile_matrix == "swiss_esri_lv03":
             self.__projection.setTileMatrix(SwissTM_ESRI_LV03())
 
@@ -941,6 +1045,33 @@ class Geopackage(object):
                     definition)
                 VALUES (21781, ?, 21781, ?, ?)
             """, ("epsg", "CH1903 / LV03 -- Swiss CH1903 / LV03", wkt))
+
+            wkt = """
+                PROJCS["CH1903+ / LV95",GEOGCS["CH1903+",
+                DATUM["CH1903",SPHEROID["Bessel 1841",6377397.155,299.1528128,
+                AUTHORITY["EPSG","7004"]],TOWGS84[674.374,15.056,405.346,0,0,0,0],
+                AUTHORITY["EPSG","6150"]],
+                PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],
+                UNIT["degree",0.01745329251994328,
+                AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4150"]],
+                UNIT["metre",1,AUTHORITY["EPSG","9001"]],
+                PROJECTION["Hotine_Oblique_Mercator"],
+                PARAMETER["latitude_of_center",46.95240555555556],
+                PARAMETER["longitude_of_center",7.439583333333333],
+                PARAMETER["azimuth",90],PARAMETER["rectified_grid_angle",90],
+                PARAMETER["scale_factor",1],PARAMETER["false_easting",2600000],
+                PARAMETER["false_northing",1200000],AUTHORITY["EPSG","2056"],
+                AXIS["Y",EAST],AXIS["X",NORTH]]
+            """
+            cursor.execute("""
+                INSERT INTO gpkg_spatial_ref_sys (
+                    srs_id,
+                    organization,
+                    organization_coordsys_id,
+                    srs_name,
+                    definition)
+                VALUES (2056, ?, 2056, ?, ?)
+            """, ("epsg", "CH1903+ / LV95 -- Swiss CH1903+ / LV95", wkt))
 
             wkt = """
                 PROJCS["unnamed",GEOGCS["WGS 84",
@@ -1382,6 +1513,9 @@ def sqlite_worker(file_list, extra_args):
                 invert_y = ScaledWorldMercator.invert_y
             elif extra_args['srs'] == 21781:
                 invert_y = CH1903LV03.invert_y
+            elif extra_args['srs'] == 2056:
+                invert_y = CH1903pLV95.invert_y
+
         [worker_map(temp_db, item, extra_args, invert_y) for item in file_list]
 
 
@@ -1423,12 +1557,16 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
         projection = ScaledWorldMercator()
     elif srs == 21781:
         projection = CH1903LV03()
+    elif srs == 2056:
+        projection = CH1903pLV95()
     else:
         projection = EllipsoidalMercator()
 
     #setup tile matrix if specified
     if tile_matrix == "swiss_lv03":
         projection.setTileMatrix(SwissTM_LV03())
+    elif tile_matrix == "swiss_lv95":
+        projection.setTileMatrix(SwissTM_LV95())
     elif tile_matrix == "swiss_esri_lv03":
         projection.setTileMatrix(SwissTM_ESRI_LV03())
 
@@ -1680,11 +1818,11 @@ if __name__ == '__main__':
             help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
             choices=list(range(100)))
     PARSER.add_argument("-tm", metavar="tile_matrix", default="",
-            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_esri_lv03",
-            choices=["swiss_lv03", "swiss_esri_lv03"])
+            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_esri_lv03",
+            choices=["swiss_lv03", "swiss_lv95", "swiss_esri_lv03"])
     PARSER.add_argument("-srs", metavar="srs", help="Spatial reference " +
             "system. Valid options are 3857, 4326, 3395, and 9804.",
-            type=int, choices=[3857, 4326, 3395, 9804, 21781], default=3857)
+            type=int, choices=[3857, 4326, 3395, 9804, 21781, 2056], default=3857)
     PARSER.add_argument("-imagery", metavar="imagery",
             help="Imagery type. Valid options are mixed, " +
             "jpeg, png, or source.", choices=["mixed", "jpeg", "png", "source"],
