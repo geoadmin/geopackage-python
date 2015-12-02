@@ -1399,6 +1399,8 @@ def file_count(base_dir, max_level):
             m = re.search("\d*|L\d*", lvStr)
             if m:
                 lv = m.group()
+        if not lv:
+            continue
         if int(lv) <= max_level or max_level == -1:
             temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
             file_list += temp_list
