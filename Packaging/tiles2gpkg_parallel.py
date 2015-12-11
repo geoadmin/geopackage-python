@@ -46,13 +46,14 @@ from operator import attrgetter
 from sqlite3 import connect, Error
 from argparse import ArgumentParser
 from sqlite3 import Binary as sbinary
-from os import walk, remove
+from os import remove
 from os.path import split, join, exists
 from multiprocessing import cpu_count, Pool
 from math import pi, sin, log, tan, atan, sinh, degrees
 import math
 import os
 import re
+import urllib2 as urllib
 try:
     from PIL.Image import open as IOPEN
 except ImportError:
@@ -893,6 +894,70 @@ class ZoomMetadata(object):
         """Set the number of tiles high this matrix should be."""
         self.__matrix_height = value
 
+class FileSystem(object):
+    #import os.path
+
+    def listdir(self, directory):
+        """List a Folder"""
+        return os.listdir(directory)
+
+    def isdir(self, directory):
+        """Check if it is a Folder"""
+        return os.path.isdir(directory)
+
+
+class S3FileSystem(object):
+    import sys
+    try:
+        from boto.s3.connection import S3Connection
+        from boto.s3.key import Key
+    except:
+        print "no S3 capabilities."
+
+    def __init__(self, root_dir, connection):
+        """
+        Constructor
+        """
+        self.conn = connection
+        if self.conn == None:
+            try:
+                from boto.s3.connection import S3Connection
+                from boto.s3.key import Key
+                self.conn = S3Connection()
+            except:
+                print "no S3 capabilities."
+        obj_url = root_dir.split('/')
+        self.bucket_name = obj_url[2]
+        self.bucket = self.conn.get_bucket(self.bucket_name)
+
+    def listdir(self, directory):
+        """List a Folder"""
+        #get s3:// and bucket name header out
+        directory = directory[6+len(self.bucket_name):]
+        res = self.bucket.list(directory, "/")
+        key_list = []
+        for key in res:
+            key_list.append(key.name[len(directory):])
+        return key_list
+
+    def isdir(self, directory):
+        """Check if it is a Folder"""
+        #check if the last 4 characters begin with a dot
+        if directory[-4:].startswith("."):
+            return 0
+        else:
+            return 1
+
+    def get_data(self, keyId):
+        keyId = keyId[6+len(self.bucket_name):]
+        key = self.bucket.lookup(keyId)
+        return key.get_contents_as_string()
+
+    def get_key(self, keyId):
+        keyId = keyId[6+len(self.bucket_name):]
+        return self.bucket.lookup(keyId)
+
+
 
 class Geopackage(object):
 
@@ -1411,7 +1476,7 @@ def img_has_transparency(img):
     return False
 
 
-def file_count(base_dir, max_level):
+def file_count(base_dir, max_level, fs):
     """
     A function that finds all image tiles in a base directory.  The base
     directory should be arranged in TMS format, i.e. z/x/y.
@@ -1428,11 +1493,14 @@ def file_count(base_dir, max_level):
 
     # Avoiding dots (functional references) will increase performance of
     #  the loop because they will not be reevaluated each iteration.
-    for root, sub_folders, files in walk(base_dir):
+    for root, sub_folders, files in walk(fs, base_dir, fs):
         #check the level
         lv = -1
         if len(root) > len(base_dir):
-            lvStr = root[len(base_dir)+1:]
+            if base_dir.endswith("/") or base_dir.endswith("\\"):
+                lvStr = root[len(base_dir):]
+            else:
+                lvStr = root[len(base_dir)+1:]
             if lvStr.startswith("L"):
                lvStr = lvStr[1:]
             m = re.search("\d*|L\d*", lvStr)
@@ -1447,6 +1515,43 @@ def file_count(base_dir, max_level):
 
     return [split_all(item) for item in file_list]
 
+
+def walk(fs, top, topdown=True, onerror=None, followlinks=False):
+    from os import path, error
+
+    import sys, errno
+
+    islink, join, isdir = path.islink, path.join, path.isdir
+
+    # We may not have read permission for top, in which case we can't
+    # get a list of the files the directory contains.  os.path.walk
+    # always suppressed the exception then, rather than blow up for a
+    # minor reason when (say) a thousand readable directories are still
+    # left to visit.  That logic is copied here.
+    try:
+        # Note that listdir and error are globals in this module due
+        # to earlier import-*.
+        names = fs.listdir(top)
+    except error, err:
+        if onerror is not None:
+            onerror(err)
+        return
+
+    dirs, nondirs = [], []
+    for name in names:
+        if fs.isdir(join(top, name)):
+            dirs.append(name)
+        else:
+            nondirs.append(name)
+    if topdown:
+        yield top, dirs, nondirs
+    for name in dirs:
+        new_path = join(top, name)
+        if followlinks or not islink(new_path):
+            for x in walk(fs, new_path, topdown, onerror, followlinks):
+                yield x
+    if not topdown:
+        yield top, dirs, nondirs
 
 def split_all(path):
     """
@@ -1486,12 +1591,13 @@ def split_all(path):
     return file_dict
 
 
-def worker_map(temp_db, tile_dict, extra_args, invert_y):
+def worker_map(temp_db, tile_dict, extra_args, invert_y, fs):
     """
     Function responsible for sending the correct oriented tile data to a
     temporary sqlite3 database.
 
     Inputs:
+    fs      -- The file system. Either regular or S3
     temp_db -- a temporary sqlite3 database that will hold this worker's tiles
     tile_dict -- a dictionary with TMS coordinates and file path for a tile
     tile_info -- a list of ZoomMetadata objects pre-generated for this tile set
@@ -1511,8 +1617,15 @@ def worker_map(temp_db, tile_dict, extra_args, invert_y):
     else:
         y_column = tile_dict['y'] - level.min_tile_col
     if IOPEN is not None:
-        img = IOPEN(tile_dict['path'], 'r')
-        data = ioBuffer()
+        if isinstance(fs, S3FileSystem):
+            fd = fs.get_data(tile_dict['path'])
+            image_file = ioBuffer(fd)
+            img = IOPEN(image_file)
+            data = ioBuffer()
+        else:
+            img = IOPEN(tile_dict['path'], 'r')
+            data = ioBuffer()
+
         if imagery == 'mixed':
             if img_has_transparency(img):
                 data = img_to_buf(img, 'png', jpeg_quality).read()
@@ -1522,18 +1635,27 @@ def worker_map(temp_db, tile_dict, extra_args, invert_y):
             data = img_to_buf(img, imagery, jpeg_quality).read()
         temp_db.insert_image_blob(zoom, x_row, y_column, sbinary(data))
     else:
-        file_handle = open(tile_dict['path'], 'rb')
-        data = buffer(file_handle.read())
-        temp_db.insert_image_blob(zoom, x_row, y_column, data)
-        file_handle.close()
+        if isinstance(fs, S3FileSystem):
+            #TODO need to be tested
+            fd = fs.get_data(tile_dict['path'])
+            data = ioBuffer(fd)
+            #data = io.BytesIO(fd.read())
+            temp_db.insert_image_blob(zoom, x_row, y_column, data)
+        else:
+            file_handle = open(tile_dict['path'], 'rb')
+            data = buffer(file_handle.read())
+            temp_db.insert_image_blob(zoom, x_row, y_column, data)
+            file_handle.close()
 
 
-def sqlite_worker(file_list, extra_args):
+def sqlite_worker(file_list, extra_args, fs):
     """
     Worker function called by asynchronous processes.  This function
     iterates through a set of tiles to process them into a TempDB object.
 
     Inputs:
+    fs        -- The file system object. either regular or S3.
+
     file_list -- an array containing a subset of tiles that will be processed
                  by this function into a TempDB object
     base_dir -- the directory in which the geopackage will be created,
@@ -1558,10 +1680,10 @@ def sqlite_worker(file_list, extra_args):
             elif extra_args['srs'] == 2056:
                 invert_y = CH1903pLV95.invert_y
 
-        [worker_map(temp_db, item, extra_args, invert_y) for item in file_list]
+        [worker_map(temp_db, item, extra_args, invert_y, fs) for item in file_list]
 
 
-def allocate(cores, pool, file_list, extra_args):
+def allocate(cores, pool, file_list, extra_args, fs):
     """
     Recursive function that fairly distributes tiles to asynchronous worker
     processes.  For N processes and C cores, N=C if C is divisible by 2.  If
@@ -1569,11 +1691,11 @@ def allocate(cores, pool, file_list, extra_args):
     """
     if cores is 1:
         print("Spawning worker with {} files".format(len(file_list)))
-        return [pool.apply_async(sqlite_worker, [file_list, extra_args])]
+        return [pool.apply_async(sqlite_worker, [file_list, extra_args, fs])]
     else:
         files = len(file_list)
-        head = allocate(int(cores/2), pool, file_list[:int(files/2)], extra_args)
-        tail = allocate(int(cores/2), pool, file_list[int(files/2):], extra_args)
+        head = allocate(int(cores/2), pool, file_list[:int(files/2)], extra_args, fs)
+        tail = allocate(int(cores/2), pool, file_list[int(files/2):], extra_args, fs)
         return head + tail
 
 
@@ -1777,8 +1899,17 @@ def main(arg_list):
     #Is a max level specified
     max_level = arg_list.maxlvl
 
+    #Check if we have a regular fs or a S3 one.
+    fs=None
+    if arg_list.source_folder.startswith('s3://'):
+        if not arg_list.source_folder.endswith("/"):
+            arg_list.source_folder = arg_list.source_folder + "/"
+        fs = S3FileSystem(arg_list.source_folder, None)
+    else:
+        fs = FileSystem()
+
     # Build the file dictionary
-    files = file_count(arg_list.source_folder, max_level)
+    files = file_count(arg_list.source_folder, max_level, fs)
     if len(files) == 0:
         # If there are no files, exit the script
         print(" Ensure the correct source tile directory was specified.")
@@ -1797,12 +1928,13 @@ def main(arg_list):
     if arg_list.threading:
         # Enable tiling on multiple CPU cores
         cores = cpu_count()
+        cores = 8
         pool = Pool(cores)
         # Build allocate dictionary
         extra_args = dict(root_dir=root_dir, tile_info=tile_info,
                 lower_left=lower_left, srs=arg_list.srs,
                 imagery=arg_list.imagery, jpeg_quality=arg_list.q)
-        results = allocate(cores, pool, files, extra_args)
+        results = allocate(cores, pool, files, extra_args, fs)
         status = ["|", "/", "-", "\\"]
         counter = 0
         try:
@@ -1834,7 +1966,7 @@ def main(arg_list):
         extra_args = dict(root_dir=root_dir, tile_info=tile_info,
                 lower_left=lower_left, srs=arg_list.srs,
                 imagery=arg_list.imagery, jpeg_quality=arg_list.q)
-        sqlite_worker(files, extra_args)
+        sqlite_worker(files, extra_args, fs)
     # Combine the individual temp databases into the output file
     with Geopackage(arg_list.output_file, arg_list.srs, tile_matrix) as gpkg:
         combine_worker_dbs(gpkg)
@@ -1879,7 +2011,7 @@ if __name__ == '__main__':
     PARSER.add_argument("-T", dest="threading", action="store_false",
             default=True, help="Disable multiprocessing.")
     ARG_LIST = PARSER.parse_args()
-    if not exists(ARG_LIST.source_folder) or exists(ARG_LIST.output_file):
+    if (not ARG_LIST.source_folder.startswith("s3://") and not exists(ARG_LIST.source_folder)) or exists(ARG_LIST.output_file):
         PARSER.print_usage()
         print("Ensure that TMS directory exists and out file does not.")
         exit(1)
