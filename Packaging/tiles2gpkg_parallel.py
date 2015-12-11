@@ -1928,7 +1928,6 @@ def main(arg_list):
     if arg_list.threading:
         # Enable tiling on multiple CPU cores
         cores = cpu_count()
-        cores = 8
         pool = Pool(cores)
         # Build allocate dictionary
         extra_args = dict(root_dir=root_dir, tile_info=tile_info,
