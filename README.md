@@ -23,6 +23,6 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 ### About this branch
 
 * Added optional -maxlvl [number] parameter. Tiles level smaller or equal to this number will be packaged.
-* Added optional -tm ['swiss_lv03' or 'swiss_esri_lv03'] parameter. Enables custom non-regular tile matrices.
-* Added Swiss projection LV03
-* Added Ability to Packages ESRI Tile Cache (Only in "exploded" format)
+* Added optional -tm ['swiss_lv03' or 'swiss_esri_lv03' or swiss_esri_lv05] parameter. Enables custom non-regular tile matrix (eCH-0056 or custom ESRI Tile Cache).
+* Added Swiss projection LV03 and LV95
+* Added Ability to Package ESRI Tile Cache (Only in "exploded" format)
