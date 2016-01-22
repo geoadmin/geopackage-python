@@ -225,6 +225,7 @@ class Mercator(object):
         """
         return (1 << z) - y - 1
 
+
     @staticmethod
     def tile_to_lat_lon(z, x, y):
         """
@@ -540,42 +541,54 @@ class SwissTM_ESRI_LV03:
     # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
     stdRdrPixelSize=0.000264583862501058376
 
+#Start/End tile can you find here https://npe.lt.admin.ch/arcgis/rest/services/CH_Map/LandeskartenKombiniert_Offline/MapServer
+#Scales in the conf.xml file int he cache folder
 class SwissTM_ESRI_LV95:
     tile_size = 256
     top_left = [-29386400 + 2000000, 30814500 + 1000000]
-    scales =   [[14285750.5715, [30+2,31+1]],
-                                 [13392891.160800001, [32+2,33+1]],
-                                  [12500031.7501, [35+1,35+2]],
-                                  [11607172.339299999, [37+2,38+2]],
-                                  [10714312.9286, [41+2,41+2]],
-                                  [9821453.5179099999, [44+2,45+2]],
-                                  [8928594.1071899999, [49+2,50+1]],
-                                  [8035734.6964699998, [54+2,55+2]],
-                                  [7142875.2857499998, [61+2,62+2]],
-                                  [6250015.8750299998, [70+2,71+2]],
-                                  [5357156.4643099997, [82+2,84+1]],
-                                  [4464297.0535899997, [98+3,101+2]],
-                                  [3571437.6428800002, [123+3,126+2]],
-                                  [2678578.2321600001, [164+3,168+2]],
-                                  [2321434.4678699998, [189+4,193+3]],
-                                  [1785718.8214400001, [246+5,252+3]],
-                                  [892859.41071900004, [493+8,504+5]],
-                                  [357143.76428800001, [1233+19,1260+12]],
-                                  [178571.882144, [2467+37,2521+23]],
-                                  [71428.752857500003, [6170+91,6304+58]],
-                                  [35714.376428800002, [12448+181,12704+115]],
-                                  [17857.188214400001, [24736+362,25248+229]],
-                                  [8928.5941071899997, [49357+723,50423+457]],
-                                  [7142.8752857500003, [61856+904,63136+571]],
-                                  [5357.15646431, [82336+1024,84480+640]],
-                                  [3571.4376428800001, [124320+1300,126128+960]]
-                             #     [1785.7188214400001, [0,0]],
-                             #     [892.85699999999997, [0,0]],
-                             #     [357.14249999999998, [0,0]]
-                                  ]
+    scales =   [[15118080, [29+1,29+2]],
+                                  [14173200, [31+1,31+2]],
+                                  [13228320, [33+1,34+1]],
+                                  [12283440, [35+2,36+1]],
+                                  [11338560, [38+2,39+2]],
+                                  [10393680, [42+2,43+1]],
+                                  [9448800, [46+2,47+2]],
+                                  [8503920, [51+2,52+2]],
+                                  [7559040, [58+2,59+2]],
+                                  [6614160, [66+2,68+1]],
+                                  [5669280, [77+2,79+2]],
+                                  [4724400, [93+2,95+2]],
+                                  [3779520, [116+3,119+2]],
+                                  [2834640, [155+3,158+3]],
+                                  [2456688, [179+4,183+2]],
+                                  [1889760, [233+4,238+3]],
+                                  [944880, [466+8,476+5]],
+                                  [377952, [1165+16,1191+11]],
+                                  [188976, [2331+31,2382+22]],
+                                  [75590.4, [5829+76,5962+55]],
+                                  [37795.2, [11659+151,11914+109]],
+                                  [18897.6, [23322+301,23823+217]],
+                                  [7559, [58299+751,59559+540]],
+                                  [5669.3, [77732+1001,79520+719]]
+                ]
     # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
     stdRdrPixelSize=0.000264583862501058376
 
+#It should not be mandatory to use a custom tile matrix
+#class ESRI_DA:
+#    tile_size = 256
+#    top_left = [-20037508.342787001, 20037508.342787001]
+#    scales =   [[591657527.591555, [0+2,0+1]],
+#                                  [295828763.79577702, [0+3,0+2]],
+#                                  [147914381.89788899, [0+5,0+3]],
+#                                  [73957190.948944002, [0+9,0+6]],
+#                                  [36978595.474472001, [0+16,0+11]],
+#                                  [18489297.737236001, [0+32,0+22]],
+#                                  [9244648.8686180003, [0+64,0+44]],
+#                                  [4622324.4343090001, [0+128,0+174]]
+#                ]
+#    # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
+#    stdRdrPixelSize=0.000264583862501058376
 
 class CH1903LV03(object):
     """
@@ -912,7 +925,7 @@ class S3FileSystem(object):
         from boto.s3.connection import S3Connection
         from boto.s3.key import Key
     except:
-        print "no S3 capabilities."
+        pass
 
     def __init__(self, root_dir, connection):
         """
@@ -925,7 +938,7 @@ class S3FileSystem(object):
                 from boto.s3.key import Key
                 self.conn = S3Connection()
             except:
-                print "no S3 capabilities."
+                pass
         obj_url = root_dir.split('/')
         self.bucket_name = obj_url[2]
         self.bucket = self.conn.get_bucket(self.bucket_name)
@@ -944,6 +957,8 @@ class S3FileSystem(object):
         """Check if it is a Folder"""
         #check if the last 4 characters begin with a dot
         if directory[-4:].startswith("."):
+            return 0
+        elif directory[-5:].startswith("."):
             return 0
         else:
             return 1
@@ -993,6 +1008,8 @@ class Geopackage(object):
             self.__projection.setTileMatrix(SwissTM_ESRI_LV03())
         elif tile_matrix == "swiss_esri_lv95":
             self.__projection.setTileMatrix(SwissTM_ESRI_LV95())
+        elif tile_matrix == "esri_da":
+            self.__projection.setTileMatrix(ESRI_DA())
 
     def __create_schema(self):
         """Create default geopackage schema on the database."""
@@ -1508,9 +1525,13 @@ def file_count(base_dir, max_level, fs):
                 lv = m.group()
         if not lv:
             continue
+        print "reading:" + root
         if int(lv) <= max_level or max_level == -1:
             temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
             file_list += temp_list
+        else:
+            #max level exceeded so stop here
+            break
     print("Found {} total tiles (max level:{}).".format(len(file_list), max_level))
 
     return [split_all(item) for item in file_list]
@@ -1844,10 +1865,17 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
             #level.max_x, level.min_y = projection.get_coord(
             #    level.zoom, level.max_tile_row + 1, inv_max_y)
 
-            level.min_x, level.max_y = projection.get_coord(
-                level.zoom, level.min_tile_col, level.min_tile_row - 1)
-            level.max_x, level.min_y = projection.get_coord(
-                level.zoom, level.max_tile_col + 1, level.max_tile_row)
+            #TODO little hack to get it right with ArcGis Online cache
+            if srs == 3857:
+                level.min_x, level.max_y = projection.get_coord(
+                    level.zoom, level.min_tile_col, level.min_tile_row + 1)
+                level.max_x, level.min_y = projection.get_coord(
+                    level.zoom, level.max_tile_col+1, level.max_tile_row)
+            else:
+                level.min_x, level.max_y = projection.get_coord(
+                    level.zoom, level.min_tile_col, level.min_tile_row - 1)
+                level.max_x, level.min_y = projection.get_coord(
+                    level.zoom, level.max_tile_col + 1, level.max_tile_row)
         # Finally, add this ZoomMetadata object to the list
         matrix.append(level)
     return matrix
@@ -1993,8 +2021,8 @@ if __name__ == '__main__':
             help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
             choices=list(range(100)))
     PARSER.add_argument("-tm", metavar="tile_matrix", default="",
-            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_esri_lv03, swiss_esri_lv95",
-            choices=["swiss_lv03", "swiss_lv95", "swiss_esri_lv03", "swiss_esri_lv95"])
+            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_esri_lv03, swiss_esri_lv95, esri_da",
+            choices=["swiss_lv03", "swiss_lv95", "swiss_esri_lv03", "swiss_esri_lv95", "esri_da"])
     PARSER.add_argument("-srs", metavar="srs", help="Spatial reference " +
             "system. Valid options are 3857, 4326, 3395, and 9804.",
             type=int, choices=[3857, 4326, 3395, 9804, 21781, 2056], default=3857)
