@@ -528,6 +528,7 @@ class SwissTM_LV03:
     #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
     stdRdrPixelSize=0.00028
 
+#ECH0056 Tile Matrix
 class SwissTM_LV95:
     tile_size = 256
     top_left = [2420000.0, 1350000.0]
@@ -544,54 +545,22 @@ class SwissTM_LV95:
     #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
     stdRdrPixelSize=0.00028
 
-class SwissTM_ESRI_LV03:
+#ECH0056 Tile Matrix
+#this is for swiss layers that have a bigger extent (like OPK)
+class SwissTM_LV95_Extended:
     tile_size = 256
-    top_left = [-29386400, 30814500]
-    scales =   [[8000000, [55+1,56+1]],
-                                 [4000000, [110+2,112+2]],
-                                  [2000000, [220+4,225+3]],
-                                  [1000000, [440+7,450+5]],
-                                  [500000, [880+13,900+9]],
-                                  [250000, [1761+25,1801+16]],
-                                  [125000, [3522+50,3603+31]]]
-    # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
-    stdRdrPixelSize=0.000264583862501058376
-
-class SwissTM_ESRI_LV95:
-    tile_size = 256
-    top_left = [-29386400 + 2000000, 30814500 + 1000000]
-    scales =   [[14285750.5715, [30+2,31+1]],
-                                 [13392891.160800001, [32+2,33+1]],
-                                  [12500031.7501, [35+1,35+2]],
-                                  [11607172.339299999, [37+2,38+2]],
-                                  [10714312.9286, [41+2,41+2]],
-                                  [9821453.5179099999, [44+2,45+2]],
-                                  [8928594.1071899999, [49+2,50+1]],
-                                  [8035734.6964699998, [54+2,55+2]],
-                                  [7142875.2857499998, [61+2,62+2]],
-                                  [6250015.8750299998, [70+2,71+2]],
-                                  [5357156.4643099997, [82+2,84+1]],
-                                  [4464297.0535899997, [98+3,101+2]],
-                                  [3571437.6428800002, [123+3,126+2]],
-                                  [2678578.2321600001, [164+3,168+2]],
-                                  [2321434.4678699998, [189+4,193+3]],
-                                  [1785718.8214400001, [246+5,252+3]],
-                                  [892859.41071900004, [493+8,504+5]],
-                                  [357143.76428800001, [1233+19,1260+12]],
-                                  [178571.882144, [2467+37,2521+23]],
-                                  [71428.752857500003, [6170+91,6304+58]],
-                                  [35714.376428800002, [12448+181,12704+115]],
-                                  [17857.188214400001, [24736+362,25248+229]],
-                                  [8928.5941071899997, [49357+723,50423+457]],
-                                  [7142.8752857500003, [61856+904,63136+571]],
-                                  [5357.15646431, [82336+1024,84480+640]],
-                                  [3571.4376428800001, [124320+1300,126128+960]]
-                             #     [1785.7188214400001, [0,0]],
-                             #     [892.85699999999997, [0,0]],
-                             #     [357.14249999999998, [0,0]]
-                                  ]
-    # ESRI Standard is 96 dot per inch, so a pixel size of: 0.264583 mm
-    stdRdrPixelSize=0.000264583862501058376
+    top_left = [2360000.0, 1430000.0]
+    scales = [[14285750.5715, [1,1]],
+                                  [13392891.1608, [1,1]],[12500031.7501, [1,1]],[11607172.3393, [1,1]],
+                                  [10714312.9286, [1,1]],[9821453.51791, [1,1]],[8928594.10719, [1,1]],
+                                  [8035734.69647, [2,1]],[7142875.28575, [2,1]],[6250015.87503, [2,1]],
+                                  [5357156.46431, [2,2]],[4464297.05359, [2,2]],[3571437.64288, [3,2]],
+                                  [2678578.23216, [4,3]],[2321434.46787, [4,3]],[1785718.82144, [5,4]],
+                                  [892859.410719, [10,7]],[357143.764288, [25,18]],[178571.882144, [50,35]],
+                                  [71428.7528575, [125,87]],[35714.3764288, [250,174]],[17857.1882144, [499,347]],
+                                  [8928.59410719, [998,694]],[7142.87528575, [1248,868]]]
+    #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
+    stdRdrPixelSize=0.00028
 
 
 class CH1903LV03(object):
@@ -929,7 +898,7 @@ class S3FileSystem(object):
         from boto.s3.connection import S3Connection
         from boto.s3.key import Key
     except:
-        print "no S3 capabilities."
+        pass
 
     def __init__(self, root_dir, connection):
         """
@@ -1010,10 +979,8 @@ class Geopackage(object):
             self.__projection.setTileMatrix(SwissTM_WGS84())
         elif tile_matrix == "swiss_lv95":
             self.__projection.setTileMatrix(SwissTM_LV95())
-        elif tile_matrix == "swiss_esri_lv03":
-            self.__projection.setTileMatrix(SwissTM_ESRI_LV03())
-        elif tile_matrix == "swiss_esri_lv95":
-            self.__projection.setTileMatrix(SwissTM_ESRI_LV95())
+        elif tile_matrix == "swiss_lv95_ext":
+            self.__projection.setTileMatrix(SwissTM_LV95_Extended())
 
     def __create_schema(self):
         """Create default geopackage schema on the database."""
@@ -1777,10 +1744,8 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
         projection.setTileMatrix(SwissTM_WGS84())
     elif tile_matrix == "swiss_lv95":
         projection.setTileMatrix(SwissTM_LV95())
-    elif tile_matrix == "swiss_esri_lv03":
-        projection.setTileMatrix(SwissTM_ESRI_LV03())
-    elif tile_matrix == "swiss_esri_lv95":
-        projection.setTileMatrix(SwissTM_ESRI_LV95())
+    elif tile_matrix == "swiss_lv95_ext":
+        projection.setTileMatrix(SwissTM_LV95_Extended())
 
     # Create a list of zoom levels from the base directory
     zoom_levels = list(set([int(item['z']) for item in file_list]))
@@ -2040,8 +2005,8 @@ if __name__ == '__main__':
             help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
             choices=list(range(100)))
     PARSER.add_argument("-tm", metavar="tile_matrix", default="",
-            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_wgs84, swiss_esri_lv03, swiss_esri_lv95",
-            choices=["swiss_lv03", "swiss_lv95", "swiss_wgs84", "swiss_esri_lv03", "swiss_esri_lv95"])
+            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_lv95_ext, swiss_wgs84",
+            choices=["swiss_lv03", "swiss_lv95", "swiss_lv95_ext", "swiss_wgs84"])
     PARSER.add_argument("-srs", metavar="srs", help="Spatial reference " +
             "system. Valid options are 3857, 4326, 3395, and 9804.",
             type=int, choices=[3857, 4326, 3395, 9804, 21781, 2056], default=3857)
