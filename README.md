@@ -38,4 +38,4 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 
 #### First 21 levels of a WMTS whose tiles are stored in Amazon S3.
 
-* tiles2gpkg_parallel.py -maxlvl 21 -srs 2056 -tm swiss_lv95 -tileorigin ul s3://wts_instance_name/1.0.0/my_layer_name/default/teimestamp/21781 geopackage.gpkg
+* tiles2gpkg_parallel.py -maxlvl 21 -srs 2056 -tm swiss_lv95 -tileorigin ul s3://wts_instance_name/1.0.0/my_layer_name/default/timestamp/21781 geopackage.gpkg
