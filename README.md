@@ -27,3 +27,13 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 * Added Swiss projection LV03 and LV95.
 * Added ability to package ESRI Tile Cache (Only in "exploded" format).
 * Added ability to package tiles stored in a s3 bucket. Use s3:// to package s3 directory.
+
+###Examples
+* First 7 levels of an exploded ArcGIS Cache, Google Map projection. 
+python.exe tiles2gpkg_parallel.py -srs 3857 -maxlvl 7 -tileorigin ul \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
+
+* First 19 levels of an exploded ArcGIS Cache, Swiss LV95 projection.
+python.exe tiles2gpkg_parallel.py -srs 2056 -tm swiss_lv95 -maxlvl 19 -tileorigin ul \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
+
+* First 21 levels of a WMTS whose tiles are stored in Amazon S3.
+tiles2gpkg_parallel.py -maxlvl 21 -srs 2056 -tm swiss_lv95 -tileorigin ul s3://wts_instance_name/1.0.0/my_layer_name/default/teimestamp/21781 geopackage.gpkg
