@@ -20,7 +20,7 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 * [Running unit tests on
   tiles2gpkg_parallel.py](https://github.com/GitHubRGI/geopackage-python/wiki/Running-Unit-Tests-On-tiles2gpkg_parallel.py)
 
-### About this branch
+### In addition to the above documentation, the following features are added in this branch
 
 * Added optional -maxlvl [number] parameter. Tiles level smaller or equal to this number will be packaged.
 * Added optional -tm ['swiss_lv03' or 'swiss_esri_lv03' or swiss_esri_lv05] parameter. Enables custom non-regular tile matrix (eCH-0056 or custom ESRI Tile Cache).
