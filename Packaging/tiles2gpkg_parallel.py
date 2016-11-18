@@ -1283,9 +1283,18 @@ class Geopackage(object):
             top_level.min_y = top_level.min_y
             top_level.max_x = top_level.max_x
             top_level.max_y = top_level.max_y
+
             # write bounds and matrix set info to table
-            cursor.execute(contents_stmt, (top_level.min_x, top_level.min_y,
-                top_level.max_x, top_level.max_y))
+            initial_extent = ARG_LIST.initialextent
+            if initial_extent == "":
+                cursor.execute(contents_stmt, (top_level.min_x, top_level.min_y,
+                    top_level.max_x, top_level.max_y))
+            #If an initial extent has been provided, we will use the values here.
+            else:
+                initial_extent = initial_extent.split(",")
+                cursor.execute(contents_stmt, (initial_extent[0], initial_extent[1],
+                    initial_extent[2], initial_extent[3]))
+
             cursor.execute(tile_matrix_set_stmt, ('tiles', self.__srs, top_level.min_x,
                 top_level.min_y, top_level.max_x, top_level.max_y))
 
@@ -2004,6 +2013,8 @@ if __name__ == '__main__':
     PARSER.add_argument("-maxlvl", metavar="max_level", type=int, default=-1,
             help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
             choices=list(range(100)))
+    PARSER.add_argument("-initialextent", metavar="initial_extent", default="",
+            help="extent of the data (used for zoom to layer functions), Default is the one suplied in the tilematrix. Format: minx,miny,maxx,maxy")
     PARSER.add_argument("-tm", metavar="tile_matrix", default="",
             help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_lv95_ext, swiss_wgs84",
             choices=["swiss_lv03", "swiss_lv95", "swiss_lv95_ext", "swiss_wgs84"])
@@ -2029,5 +2040,9 @@ if __name__ == '__main__':
     if ARG_LIST.q is not None and ARG_LIST.imagery == 'png':
         PARSER.print_usage()
         print("-q cannot be used with png")
+        exit(1)
+    if ARG_LIST.initialextent != "" and len(ARG_LIST.initialextent.split(",")) != 4:
+        PARSER.print_usage()
+        print("Initial extent must be a coma separated list o 4 values. Example: mix,miny,maxx,maxy")
         exit(1)
     main(ARG_LIST)
