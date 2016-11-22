@@ -1868,6 +1868,11 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
                 level.zoom, level.min_tile_col, level.min_tile_row - 1)
             level.max_x, level.min_y = projection.get_coord(
                 level.zoom, level.max_tile_col + 1, level.max_tile_row)
+
+            #I'm confuse with the whole thing but it works...
+            if srs == 3857:
+                level.max_y = level.max_x
+
         # Finally, add this ZoomMetadata object to the list
         matrix.append(level)
     return matrix
