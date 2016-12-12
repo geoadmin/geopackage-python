@@ -206,6 +206,7 @@ class Mercator(object):
         """
         Constructor
         """
+        self.srs = 3857
         self.tile_size = tile_size
         self.radius = 6378137
         self.origin_shift = pi * self.radius
@@ -301,6 +302,7 @@ class Geodetic(object):
         """
         Constructor
         """
+        self.srs = 4326
         self.tile_size = tile_size
         self.resolution_factor = 360.0 / self.tile_size
         self.tile_matrix = None
@@ -361,6 +363,7 @@ class EllipsoidalMercator(Mercator):
         Constructor
         """
         super(EllipsoidalMercator, self).__init__()
+        self.srs = 3395
 
     @staticmethod
     def lat_to_northing(lat):
@@ -431,6 +434,7 @@ class ScaledWorldMercator(EllipsoidalMercator):
         Constructor
         """
         super(ScaledWorldMercator, self).__init__()
+        self.srs = 9804
 
     @staticmethod
     def pixel_size(z):
@@ -501,6 +505,142 @@ class ScaledWorldMercator(EllipsoidalMercator):
         # Instituting a 2 decimal place round to ensure accuracy
         return meters_x, round(meters_y, 2)
 
+class ESRIGenericProjMeter(object):
+    """
+    Represents an ESRI Tile Cache whose projection is defined in the Conf.xml associated file.
+    """
+
+    def __init__(self, folder, extent):
+        """
+        Constructor
+        """
+        self.tile_matrix = ESRI_TileMatrix(folder.replace('_alllayers','conf.xml'), extent)
+        self.tile_matrix.read()
+        self.folder = folder
+        self.extent = extent
+        self.srs = self.tile_matrix.wkid
+        self.tile_size = self.tile_matrix.tile_size
+
+    @staticmethod
+    def invert_y(z, y):
+        """
+        Inverts the Y tile value.
+
+        Inputs:
+        z -- the zoom level associated with the tile
+        y -- the Y tile number
+
+        Returns:
+        The flipped tile value
+        """
+        return (1 << z) - y - 1
+
+    def tile_to_meters(self, z, x, y):
+        """
+        Returns the meter coordinates of the bottom-left corner of the input
+        tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+        meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+        meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+
+        return meters_x, meters_y
+
+
+    #@staticmethod
+    def pixel_size(self, z):
+        """
+        Returns the pixel resolution of the input zoom level.
+
+        Inputs:
+        z -- zoom level value for the input tile
+        """
+        return self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+
+    def get_coord(self, z, x, y):
+        """
+        Returns the coordinates (in meters) of the bottom-left corner of the
+        input tile.
+
+        Inputs:
+        z -- zoom level value for input tile
+        x -- tile column (longitude) value for input tile
+        y -- tile row (latitude) value for input tile
+        """
+        return self.tile_to_meters(z, x, y)
+
+class ESRI_TileMatrix(object):
+
+    def __init__(self, confPath, extent):
+
+        """
+        Constructor
+        """
+        self.confPath = confPath
+        self.extent = extent
+        #96 DPI Default
+        self.stdRdrPixelSize = 0.00026458386250105835
+        self.scales = []
+        self.top_left = []
+        self.wkid = 0
+
+    def read(self):
+        from xml.dom import minidom
+
+        xmldoc=None
+        try:
+            xmldoc = minidom.parse(self.confPath)
+        except Exception as e:
+            print "cannot read the cache conf.xml file: ", self.confPath
+            print e
+            exit(1)
+
+        #Tile size
+        itemlist = xmldoc.getElementsByTagName('TileCols')
+        self.tile_size = int(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+
+        #Tile origin
+        itemlist = xmldoc.getElementsByTagName('X')
+        xOrig = float(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+        itemlist = xmldoc.getElementsByTagName('Y')
+        yOrig = float(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+        self.top_left=[xOrig, yOrig]
+
+        #Scales
+        itemlist = xmldoc.getElementsByTagName('Scale')
+        arrExtent = self.extent.split(",")
+        for res in itemlist:
+            s = float(ESRI_TileMatrix.getText(res.childNodes))
+            colrow = self.meterToTile(s, int(arrExtent[2]), int(arrExtent[1]))
+            self.scales.append([s, [colrow[0],colrow[1]]])
+
+        #src
+        itemlist = xmldoc.getElementsByTagName('LatestWKID')
+        self.wkid = int(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+
+        #wkt
+        itemlist = xmldoc.getElementsByTagName('WKT')
+        self.wkt = ESRI_TileMatrix.getText(itemlist[0].childNodes)
+
+
+    @staticmethod
+    def getText(nodelist):
+        rc = []
+        for node in nodelist:
+            if node.nodeType == node.TEXT_NODE:
+                rc.append(node.data)
+        return ''.join(rc)
+
+    def meterToTile(self, level, x, y):
+        col = int(math.ceil((x - self.top_left[0]) / (self.tile_size * self.stdRdrPixelSize * level)))
+        row = int(math.ceil((self.top_left[1] - y) / (self.tile_size  * self.stdRdrPixelSize * level)))
+        return col, row
+
+
 class SwissTM_WGS84:
     tile_size = 256
     top_left = [90, -180]
@@ -544,24 +684,6 @@ class SwissTM_LV95:
                                   [3571.43764288, [1875,1250]],[1785.71882144, [3750,2500]], [892.857, [7500,5000]], [357.1425, [18750,12500]]]
     #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
     stdRdrPixelSize=0.00028
-
-#ECH0056 Tile Matrix
-#this is for swiss layers that have a bigger extent (like OPK)
-class SwissTM_LV95_Extended:
-    tile_size = 256
-    top_left = [2360000.0, 1430000.0]
-    scales = [[14285750.5715, [1,1]],
-                                  [13392891.1608, [1,1]],[12500031.7501, [1,1]],[11607172.3393, [1,1]],
-                                  [10714312.9286, [1,1]],[9821453.51791, [1,1]],[8928594.10719, [1,1]],
-                                  [8035734.69647, [2,1]],[7142875.28575, [2,1]],[6250015.87503, [2,1]],
-                                  [5357156.46431, [2,2]],[4464297.05359, [2,2]],[3571437.64288, [3,2]],
-                                  [2678578.23216, [4,3]],[2321434.46787, [4,3]],[1785718.82144, [5,4]],
-                                  [892859.410719, [10,7]],[357143.764288, [25,18]],[178571.882144, [50,35]],
-                                  [71428.7528575, [125,87]],[35714.3764288, [250,174]],[17857.1882144, [499,347]],
-                                  [8928.59410719, [998,694]],[7142.87528575, [1248,868]]]
-    #WMTS Standard is 25.4mm per inch / 0.28mm per pixel(dot) = 90.71 dot per inch
-    stdRdrPixelSize=0.00028
-
 
 class CH1903LV03(object):
     """
@@ -608,8 +730,8 @@ class CH1903LV03(object):
         x -- tile column (longitude) value for input tile
         y -- tile row (latitude) value for input tile
         """
-        meters_x = this.tile_matrix.top_left[0] + x * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
-        meters_y = this.tile_matrix.top_left[1] - (y + 1) * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0]
+        meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
+        meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
 
         lat = CH1903LV03.converter.CHtoWGSlat(meters_x, meters_y)
         lon = CH1903LV03.converter.CHtoWGSlng(meters_x, meters_y)
@@ -641,7 +763,7 @@ class CH1903LV03(object):
         Inputs:
         z -- zoom level value for the input tile
         """
-        return self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] / self.tile_matrix.tile_size
+        return self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
 
     def get_coord(self, z, x, y):
         """
@@ -708,8 +830,8 @@ class CH1903pLV95(object):
         x -- tile column (longitude) value for input tile
         y -- tile row (latitude) value for input tile
         """
-        meters_x = this.tile_matrix.top_left[0] + x * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0] - 2000000
-        meters_y = this.tile_matrix.top_left[1] - (y + 1) * this.tile_matrix.tile_size * this.tile_matrix.stdRdrPixelSize * this.tile_matrix.scales[z][0] - 1000000
+        meters_x = self.tile_matrix.top_left[0] + x * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] - 2000000
+        meters_y = self.tile_matrix.top_left[1] - (y + 1) * self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] - 1000000
 
         lat = CH1903LV03.converter.CHtoWGSlat(meters_x, meters_y)
         lon = CH1903LV03.converter.CHtoWGSlng(meters_x, meters_y)
@@ -742,7 +864,7 @@ class CH1903pLV95(object):
         Inputs:
         z -- zoom level value for the input tile
         """
-        return self.tile_matrix.tile_size * self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0] / self.tile_matrix.tile_size
+        return self.tile_matrix.stdRdrPixelSize * self.tile_matrix.scales[z][0]
 
     def get_coord(self, z, x, y):
         """
@@ -963,14 +1085,14 @@ class Geopackage(object):
             self.__projection = EllipsoidalMercator()
         elif self.__srs == 9804:
             self.__projection = ScaledWorldMercator()
+        elif self.__srs == 32634:
+            self.__projection = UtmTransverseMercator(34, 1)
         elif self.__srs == 21781:
             self.__projection = CH1903LV03()
         elif self.__srs == 2056:
             self.__projection = CH1903pLV95()
-        else:
+        elif tile_matrix != "esri":
             self.__projection = Geodetic()
-        self.__db_con = connect(self.__file_path)
-        self.__create_schema()
 
         #setup tile matrix if specified
         if tile_matrix == "swiss_lv03":
@@ -979,8 +1101,12 @@ class Geopackage(object):
             self.__projection.setTileMatrix(SwissTM_WGS84())
         elif tile_matrix == "swiss_lv95":
             self.__projection.setTileMatrix(SwissTM_LV95())
-        elif tile_matrix == "swiss_lv95_ext":
-            self.__projection.setTileMatrix(SwissTM_LV95_Extended())
+        elif tile_matrix == "esri":
+            self.__projection = ESRIGenericProjMeter(ARG_LIST.source_folder, ARG_LIST.initialextent)
+
+        self.__db_con = connect(self.__file_path)
+        self.__create_schema()
+
 
     def __create_schema(self):
         """Create default geopackage schema on the database."""
@@ -1047,6 +1173,41 @@ class Geopackage(object):
                     tile_data BLOB NOT NULL,
                     UNIQUE (zoom_level, tile_column, tile_row));
             """)
+            cursor.execute("""
+                CREATE TABLE gpkg_geometry_columns (
+                    table_name TEXT NOT NULL,
+                    column_name TEXT NOT NULL,
+                    geometry_type_name TEXT NOT NULL,
+                    srs_id INTEGER NOT NULL,
+                    z TINYINT NOT NULL,
+                    m TINYINT NOT NULL,
+                    CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name),
+                    CONSTRAINT uk_gc_table_name UNIQUE (table_name),
+                    CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name),
+                    CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys (srs_id));
+            """)
+            cursor.execute("""
+                CREATE TABLE gpkg_metadata (
+                    id INTEGER CONSTRAINT m_pk PRIMARY KEY ASC NOT NULL UNIQUE,
+                    md_scope TEXT NOT NULL DEFAULT 'dataset',
+                    md_standard_uri TEXT NOT NULL,
+                    mime_type TEXT NOT NULL DEFAULT 'text/xml',
+                    metadata TEXT NOT NULL);
+            """)
+            cursor.execute("""
+                CREATE TABLE gpkg_metadata_reference (
+                reference_scope TEXT NOT NULL,
+                table_name TEXT,
+                column_name TEXT,
+                row_id_value INTEGER,
+                timestamp DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                md_file_id INTEGER NOT NULL,
+                md_parent_id INTEGER,
+                CONSTRAINT crmr_mfi_fk FOREIGN KEY (md_file_id) REFERENCES gpkg_metadata(id),
+                CONSTRAINT crmr_mpi_fk FOREIGN KEY (md_parent_id) REFERENCES gpkg_metadata(id));
+            """)
+
+
             cursor.execute("pragma foreign_keys = 1;")
             # Insert EPSG values for tiles table
             wkt = """
@@ -1068,7 +1229,7 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (3857, ?, 3857, ?, ?)
-            """, ("epsg", "WGS 84 / Pseudo-Mercator", wkt))
+            """, ("epsg", "WGS 84 / Pseudo-Mercator", wkt.strip()))
             wkt = """
                 GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,
                 298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG",
@@ -1084,7 +1245,7 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (4326, ?, 4326, ?, ?)
-            """, ("epsg", "WGS 84", wkt))
+            """, ("epsg", "WGS 84", wkt.strip()))
             wkt = """
                 PROJCS["WGS 84 / World Mercator",GEOGCS["WGS 84",
                 DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,
@@ -1105,7 +1266,7 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (3395, ?, 3395, ?, ?)
-            """, ("epsg", "WGS 84 / World Mercator", wkt))
+            """, ("epsg", "WGS 84 / World Mercator", wkt.strip()))
 
             wkt = """
                 PROJCS["CH1903 / LV03",GEOGCS["CH1903",
@@ -1135,7 +1296,7 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (21781, ?, 21781, ?, ?)
-            """, ("epsg", "CH1903 / LV03 -- Swiss CH1903 / LV03", wkt))
+            """, ("epsg", "CH1903 / LV03 -- Swiss CH1903 / LV03", wkt.strip()))
 
             wkt = """
                 PROJCS["CH1903+ / LV95",GEOGCS["CH1903+",
@@ -1162,7 +1323,7 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (2056, ?, 2056, ?, ?)
-            """, ("epsg", "CH1903+ / LV95 -- Swiss CH1903+ / LV95", wkt))
+            """, ("epsg", "CH1903+ / LV95 -- Swiss CH1903+ / LV95", wkt.strip()))
 
             wkt = """
                 PROJCS["unnamed",GEOGCS["WGS 84",
@@ -1184,7 +1345,8 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (9804, ?, 9804, ?, ?)
-            """, ("epsg", "WGS 84 / Scaled World Mercator", wkt))
+            """, ("epsg", "WGS 84 / Scaled World Mercator", wkt.strip()))
+
             wkt = """undefined"""
             cursor.execute("""
                 INSERT INTO gpkg_spatial_ref_sys (
@@ -1194,7 +1356,8 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (-1, ?, -1, ?, ?)
-            """, ("NONE", " ", wkt))
+            """, ("NONE", " ", wkt.strip()))
+
             cursor.execute("""
                 INSERT INTO gpkg_spatial_ref_sys (
                     srs_id,
@@ -1203,7 +1366,23 @@ class Geopackage(object):
                     srs_name,
                     definition)
                 VALUES (0, ?, 0, ?, ?)
-            """, ("NONE", " ", wkt))
+            """, ("NONE", " ", wkt.strip()))
+
+            # Insert the WKT coord sys def found in Cachedef if it is an ESRI cache
+            if self.__projection.tile_matrix is not None:
+                if self.__projection.tile_matrix.wkid is not None:
+                    if self.__projection.tile_matrix.wkid not in (2056, 3395, 3857, 4326, 9804, 21781):
+                        cursor.execute("""
+                        INSERT INTO gpkg_spatial_ref_sys (
+                            srs_id,
+                            organization,
+                            organization_coordsys_id,
+                            srs_name,
+                            definition)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, (self.__projection.tile_matrix.wkid, "epsg", self.__projection.tile_matrix.wkid, "EPSG:{}".format(self.__projection.tile_matrix.wkid), self.__projection.tile_matrix.wkt))
+
+
             cursor.execute("""
                 INSERT INTO gpkg_contents (
                     table_name,
@@ -1218,7 +1397,7 @@ class Geopackage(object):
                 VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?);
             """, ("tiles", "tiles", "Raster Tiles",
                     "Created by tiles2gpkg_parallel.py, written by S. Lander",
-                    self.__srs))
+                    self.__projection.srs))
             # Add GP10 to the Sqlite header
             cursor.execute("pragma application_id = 1196437808;")
 
@@ -1295,7 +1474,7 @@ class Geopackage(object):
                 cursor.execute(contents_stmt, (initial_extent[0], initial_extent[1],
                     initial_extent[2], initial_extent[3]))
 
-            cursor.execute(tile_matrix_set_stmt, ('tiles', self.__srs, top_level.min_x,
+            cursor.execute(tile_matrix_set_stmt, ('tiles', self.__projection.srs, top_level.min_x,
                 top_level.min_y, top_level.max_x, top_level.max_y))
 
     def execute(self, statement, inputs=None):
@@ -1506,8 +1685,8 @@ def file_count(base_dir, max_level, fs):
                 lv = m.group()
         if not lv:
             continue
-        print root
-        print lv
+        if lv != -1:
+            print "level: {}, folder: {}".format(lv, root)
         if int(lv) <= max_level or max_level == -1:
             temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
             file_list += temp_list
@@ -1695,6 +1874,8 @@ def sqlite_worker(file_list, extra_args, fs):
                 invert_y = EllipsoidalMercator.invert_y
             elif extra_args['srs'] == 9804:
                 invert_y = ScaledWorldMercator.invert_y
+            elif extra_args['srs'] == 32634:
+                invert_y = UtmTransverseMercator.invert_y
             elif extra_args['srs'] == 21781:
                 invert_y = CH1903LV03.invert_y
             elif extra_args['srs'] == 2056:
@@ -1719,7 +1900,7 @@ def allocate(cores, pool, file_list, extra_args, fs):
         return head + tail
 
 
-def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
+def build_lut(file_list, lower_left, srs, max_level, tile_matrix, src_folder, extent):
     """
     Build a lookup table that aids in metadata generation.
 
@@ -1739,11 +1920,13 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
         projection = Geodetic()
     elif srs == 9804:
         projection = ScaledWorldMercator()
+    elif srs == 32634:
+        projection = UtmTransverseMercator(34, 1)
     elif srs == 21781:
         projection = CH1903LV03()
     elif srs == 2056:
         projection = CH1903pLV95()
-    else:
+    elif tile_matrix != "esri":
         projection = EllipsoidalMercator()
 
     #setup tile matrix if specified
@@ -1753,8 +1936,8 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
         projection.setTileMatrix(SwissTM_WGS84())
     elif tile_matrix == "swiss_lv95":
         projection.setTileMatrix(SwissTM_LV95())
-    elif tile_matrix == "swiss_lv95_ext":
-        projection.setTileMatrix(SwissTM_LV95_Extended())
+    elif tile_matrix == "esri":
+        projection = ESRIGenericProjMeter(src_folder, extent)
 
     # Create a list of zoom levels from the base directory
     zoom_levels = list(set([int(item['z']) for item in file_list]))
@@ -1873,6 +2056,7 @@ def build_lut(file_list, lower_left, srs, max_level, tile_matrix):
             if srs == 3857:
                 level.max_y = level.max_x
 
+
         # Finally, add this ZoomMetadata object to the list
         matrix.append(level)
     return matrix
@@ -1941,14 +2125,17 @@ def main(arg_list):
         exit(1)
 
     # Is a tilematrix specified?
-    tile_matrix=arg_list.tm
+    if('_alllayers' in arg_list.source_folder and arg_list.tm is None):
+        tile_matrix='esri'
+    else:
+        tile_matrix=arg_list.tm
 
     # Is the input tile grid aligned to lower-left or not?
     lower_left = arg_list.tileorigin == 'll' or arg_list.tileorigin == 'sw'
     # Get the output file destination directory
     root_dir, _ = split(arg_list.output_file)
     # Build the tile matrix info object
-    tile_info = build_lut(files, lower_left, arg_list.srs, max_level, tile_matrix)
+    tile_info = build_lut(files, lower_left, arg_list.srs, max_level, tile_matrix, arg_list.source_folder, arg_list.initialextent)
     # Initialize the output file
     if arg_list.threading:
         # Enable tiling on multiple CPU cores
@@ -1992,6 +2179,7 @@ def main(arg_list):
                 lower_left=lower_left, srs=arg_list.srs,
                 imagery=arg_list.imagery, jpeg_quality=arg_list.q)
         sqlite_worker(files, extra_args, fs)
+
     # Combine the individual temp databases into the output file
     with Geopackage(arg_list.output_file, arg_list.srs, tile_matrix) as gpkg:
         combine_worker_dbs(gpkg)
@@ -2013,19 +2201,18 @@ if __name__ == '__main__':
             help="Destination file path.")
     PARSER.add_argument("-tileorigin", metavar="tile_origin",
             help="Tile point of origin location. Valid options " +
-            "are ll, ul, nw, or sw.", choices=["ll", "ul", "sw", "nw"],
-            default="ll")
+            "are ll, ul, nw, or sw.", choices=["ll", "ul", "sw", "nw"])
     PARSER.add_argument("-maxlvl", metavar="max_level", type=int, default=-1,
             help="Maximum cache level to package (0 based index), 0-100. Default is -1 = all",
             choices=list(range(100)))
-    PARSER.add_argument("-initialextent", metavar="initial_extent", default="",
+    PARSER.add_argument("-initialextent", metavar="initial_extent",
             help="extent of the data (used for zoom to layer functions), Default is the one suplied in the tilematrix. Format: minx,miny,maxx,maxy")
-    PARSER.add_argument("-tm", metavar="tile_matrix", default="",
-            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_lv95_ext, swiss_wgs84",
-            choices=["swiss_lv03", "swiss_lv95", "swiss_lv95_ext", "swiss_wgs84"])
+    PARSER.add_argument("-tm", metavar="tile_matrix",
+            help="Tilematrix name to use. Default is the regular one. Choices are swiss_lv03, swiss_lv95, swiss_wgs84",
+            choices=["swiss_lv03", "swiss_lv95", "swiss_wgs84"])
     PARSER.add_argument("-srs", metavar="srs", help="Spatial reference " +
             "system. Valid options are 3857, 4326, 3395, and 9804.",
-            type=int, choices=[3857, 4326, 3395, 9804, 21781, 2056], default=3857)
+            type=int, choices=[3857, 4326, 3395, 9804, 21781, 2056])
     PARSER.add_argument("-imagery", metavar="imagery",
             help="Imagery type. Valid options are mixed, " +
             "jpeg, png, or source.", choices=["mixed", "jpeg", "png", "source"],
@@ -2038,7 +2225,14 @@ if __name__ == '__main__':
     PARSER.add_argument("-T", dest="threading", action="store_false",
             default=True, help="Disable multiprocessing.")
     ARG_LIST = PARSER.parse_args()
-    if (not ARG_LIST.source_folder.startswith("s3://") and not exists(ARG_LIST.source_folder)) or exists(ARG_LIST.output_file):
+    if ('_alllayers' in ARG_LIST.source_folder and (ARG_LIST.srs is not None or ARG_LIST.tm is not None or ARG_LIST.tileorigin is not None)):
+        PARSER.print_usage()
+        print("ESRI cache uses its own Conf.xml file. No srs, tilematrix or tileorigin should be supplied.")
+        exit(1)
+    if ('_alllayers' in ARG_LIST.source_folder and ARG_LIST.initialextent is None):
+        print("ESRI cache needs an initialextent parameter.")
+        exit(1)
+    if (not ARG_LIST.source_folder.startswith("s3://") and not exists(ARG_LIST.source_folder)):
         PARSER.print_usage()
         print("Ensure that TMS directory exists and out file does not.")
         exit(1)
@@ -2050,4 +2244,12 @@ if __name__ == '__main__':
         PARSER.print_usage()
         print("Initial extent must be a coma separated list o 4 values. Example: mix,miny,maxx,maxy")
         exit(1)
+    # clear outputfile if exists
+    if exists(ARG_LIST.output_file):
+        try:
+            os.remove(ARG_LIST.output_file)
+        except:
+            print("cannot delete file: {}".format(ARG_LIST.output_file))
+            exit(1)
+
     main(ARG_LIST)
