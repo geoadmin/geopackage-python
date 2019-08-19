@@ -26,17 +26,18 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 * Added optional -tm ['swiss_lv03', swiss_lv05] parameter. Enables custom non-regular tile matrix (eCH-0056 or custom ESRI Tile Cache).
 * Added Swiss projection LV03 and LV95.
 * Added ability to package ESRI Tile Cache (Only in "exploded" format).
+* The Sricpt configures the Geopackage with the Conf.xml file from ESRI Tile Cache format automatically.
 * Added ability to package tiles stored in a s3 bucket. Use s3:// to package s3 directory.
 * Ability to give an initial extent for the content (for zoom to layer functions in common GIS).
 
 ###Examples
-#### First 7 levels of an exploded ArcGIS Cache, Google Map projection.
+#### All levels of an exploded ArcGIS Cache (Script reads Conf.xml file from Cache).
 
-* python.exe tiles2gpkg_parallel.py -srs 3857 -maxlvl 7 -tileorigin ul \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
+* python.exe tiles2gpkg_parallel.py -initialextent minX,minY,maxX,maxY \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
 
-#### First 19 levels of an exploded ArcGIS Cache, Swiss LV95 projection.
+#### First 19 levels of an exploded ArcGIS Cache (Script reads Conf.xml file from Cache).
 
-* python.exe tiles2gpkg_parallel.py -srs 2056 -tm swiss_lv95 -maxlvl 19 -tileorigin ul \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
+* python.exe tiles2gpkg_parallel.py -maxlvl 19 -initialextent minX,minY,maxX,maxY \path_to_arcgis_cache\Layers\_alllayers geopackage.gpkg
 
 #### First 21 levels of a WMTS whose tiles are stored in Amazon S3 + custom initial extent.
 
