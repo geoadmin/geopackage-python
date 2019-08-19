@@ -54,6 +54,9 @@ import math
 import os
 import re
 import urllib2 as urllib
+import struct
+import threading
+from threading import Lock
 try:
     from PIL.Image import open as IOPEN
 except ImportError:
@@ -62,7 +65,90 @@ except ImportError:
 # JPEGs @ 75% provide good quality images with low footprint, use as a default
 # PNGs should be used sparingly (mixed mode) due to their high disk usage RGBA
 # Options are mixed, jpeg, and png
-IMAGE_TYPES = '.png', '.jpeg', '.jpg'
+IMAGE_TYPES = '.png', '.jpeg', '.jpg', '.bundle'
+
+
+class Bundle(object):
+    # Bundle linear size in tiles
+    PSIZE = 128
+    M = 2 ** 40
+    INDEXES = {}
+    HANDLES = {}
+
+    def __init__(self, path):
+        self.root = path
+
+        if path not in Bundle.INDEXES:
+            # read index
+            fh = open(path, "r+b")
+            fh.seek(64)
+            Bundle.INDEXES[path] = list(struct.unpack("<{}Q".format(Bundle.PSIZE ** 2), fh.read((Bundle.PSIZE ** 2) * 8)))
+            fh.close()
+
+        self.b_index = Bundle.INDEXES[path]
+        # read level
+        regex = r"\_alllayers\\L(..)"
+        self.level = re.findall(regex, path)[0]
+        #read bundle name offset
+        self.name = path.split('.bundle')[0].split('\\')[-1]
+        self.row_offset = int(self.name[1:5], 16)
+        self.col_offset = int(self.name[6:10], 16)
+        self.lock = Lock()
+
+
+    def listFiles(self):
+        files = []
+        # Loop each Tile index and resolve if it has data
+        for row in range(0, 127):
+            for col in range(0, 127):
+                t_idx = self.b_index[128 * row + col]
+                t_size = int(math.floor(t_idx / Bundle.M))
+
+                # list file if not empty
+                if t_size != 0:
+                    t_offset = t_idx % Bundle.M
+                    #print "path: " + os.path.join(self.root, str(row), str(col))
+                    absrow = self.row_offset + row
+                    abscol = self.col_offset + col
+                    p = os.path.join(self.root, str(absrow), str(abscol))
+                    files.append(dict(y=abscol, x=absrow, z=int(self.level), path=p))
+
+                    #data = self.getTile(os.path.join(self.root, str(row), str(col)), self.level, col, row)
+                    #fh = open("c:\\temp\\"+str(self.level)+"_"+str(row)+"_"+str(col)+".png", "w+b")
+                    #fh.write(data)
+                    #fh.close()
+
+        return files
+        # return a dict with all files in bundle in form:
+        # return dict(y=0, x=0, z=int(parts[1]), path=os.path.join(path, "0", "0.jpg"))
+
+    # 1 handle per file to limit file handles
+    def getTile(self, path, level, abscol, absrow):
+        col = abscol - self.col_offset
+        row = absrow - self.row_offset
+        fname = path.split(".bundle")[0] + ".bundle"
+
+        t_idx = self.b_index[128 * row + col]
+        TileOffset = t_idx % Bundle.M
+        TileSize = int(math.floor(t_idx / Bundle.M))
+
+        self.lock.acquire()
+        if fname not in Bundle.HANDLES:
+            Bundle.HANDLES[fname] = open(fname, "r+b")
+        self.handle = Bundle.HANDLES[fname]
+        self.handle.seek(TileOffset)
+        data = self.handle.read(TileSize)
+        self.lock.release()
+
+        return data
+
+    def close(self):
+        self.handle.close()
+
+    @staticmethod
+    def closeAll():
+        for ele in Bundle.HANDLES:
+            Bundle.HANDLES[ele].close()
 
 class GPSConverter(object):
     '''
@@ -517,7 +603,7 @@ class ESRIGenericProjMeter(object):
         self.tile_matrix = ESRI_TileMatrix(folder.replace('_alllayers','conf.xml'), extent)
         self.tile_matrix.read()
         self.folder = folder
-        self.extent = extent
+        self.extent = extent.replace('\'', '')
         self.srs = self.tile_matrix.wkid
         self.tile_size = self.tile_matrix.tile_size
 
@@ -620,7 +706,11 @@ class ESRI_TileMatrix(object):
 
         #src
         itemlist = xmldoc.getElementsByTagName('LatestWKID')
-        self.wkid = int(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+        if len(itemlist) != 0:
+            self.wkid = int(ESRI_TileMatrix.getText(itemlist[0].childNodes))
+        else:
+            itemlist = xmldoc.getElementsByTagName('WKID')
+            self.wkid = int(ESRI_TileMatrix.getText(itemlist[0].childNodes))
 
         #wkt
         itemlist = xmldoc.getElementsByTagName('WKT')
@@ -1464,7 +1554,7 @@ class Geopackage(object):
             top_level.max_y = top_level.max_y
 
             # write bounds and matrix set info to table
-            initial_extent = ARG_LIST.initialextent
+            initial_extent = ARG_LIST.initialextent.replace('\'', '')
             if initial_extent == "":
                 cursor.execute(contents_stmt, (top_level.min_x, top_level.min_y,
                     top_level.max_x, top_level.max_y))
@@ -1586,7 +1676,10 @@ class TempDB(object):
         #fixed order column/row -> y,x RB
         with self.__db_con as db_con:
             cursor = db_con.cursor()
-            cursor.execute(self.image_blob_stmt, (z, y, x, data))
+            try:
+                cursor.execute(self.image_blob_stmt, (z, y, x, data))
+            except Exception as e:
+                print "Error while writing tile: lvl:"+str(z)+" col:"+str(x)+" row:"+str(y)+": " +  e.message
 
     def __exit__(self, type, value, traceback):
         """Resource cleanup on destruction."""
@@ -1688,7 +1781,7 @@ def file_count(base_dir, max_level, fs):
         if lv != -1:
             print "level: {}, folder: {}".format(lv, root)
         if int(lv) <= max_level or max_level == -1:
-            temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES)]
+            temp_list = [join(root, f) for f in files if f.endswith(IMAGE_TYPES) and "missing" not in f]
             file_list += temp_list
         else:
             print "Walk dir reached max lvl, exiting."
@@ -1785,8 +1878,14 @@ def split_all(path):
     if not is_esri:
         file_dict = dict(y=int(parts[0].split('.')[0]), x=int(parts[1]),z=int(parts[2]), path=full_path)
     else:
-        #handle Esri Cache
-        file_dict = dict(y=int(parts[0].split('.')[0], 16), x=int(parts[1], 16),z=int(parts[2]), path=full_path)
+        #handle Esri exploded Cache
+        if ".bundle" not in parts[0]:
+            file_dict = dict(y=int(parts[0].split('.')[0], 16), x=int(parts[1], 16),z=int(parts[2]), path=full_path)
+        #handle compact cache V2
+        else:
+            b = Bundle(full_path)
+            file_dict = b.listFiles()
+
     return file_dict
 
 
@@ -1841,10 +1940,17 @@ def worker_map(temp_db, tile_dict, extra_args, invert_y, fs):
             #data = io.BytesIO(fd.read())
             temp_db.insert_image_blob(zoom, x_row, y_column, data)
         else:
-            file_handle = open(tile_dict['path'], 'rb')
-            data = buffer(file_handle.read())
+            if ".bundle" not in tile_dict['path']:
+                file_handle = open(tile_dict['path'], 'rb')
+                data = buffer(file_handle.read())
+                file_handle.close()
+            else:
+                b = Bundle(tile_dict['path'].split('.bundle')[0]+'.bundle')
+                data = buffer(b.getTile(tile_dict['path'], tile_dict['z'], tile_dict['y'], tile_dict['x']))
+                #b.close()
+
             temp_db.insert_image_blob(zoom, x_row, y_column, data)
-            file_handle.close()
+
 
 
 def sqlite_worker(file_list, extra_args, fs):
@@ -2105,8 +2211,11 @@ def main(arg_list):
     arg_list -- an ArgumentParser object containing command-line options and
     flags
     """
+    #arg_list.source_folder = r'C:\LegacySW\GitHub\raster-tiles-compactcache\sample_tiles'
+
     #Is a max level specified
     max_level = arg_list.maxlvl
+    hasBundles = False
 
     #Check if we have a regular fs or a S3 one.
     fs=None
@@ -2124,6 +2233,17 @@ def main(arg_list):
         print(" Ensure the correct source tile directory was specified.")
         exit(1)
 
+    #merge list if bundle used
+    if isinstance(files[0], list):
+        hasBundles = True
+        mrg = []
+        for ele in files:
+            if isinstance(ele, list):
+                mrg = mrg + ele
+        files = mrg
+
+    print "Tile list ready."
+
     # Is a tilematrix specified?
     if('_alllayers' in arg_list.source_folder and arg_list.tm is None):
         tile_matrix='esri'
@@ -2140,7 +2260,7 @@ def main(arg_list):
     if arg_list.threading:
         # Enable tiling on multiple CPU cores
         cores = cpu_count()
-        cores = 16
+        #cores = 16
         pool = Pool(cores)
         # Build allocate dictionary
         extra_args = dict(root_dir=root_dir, tile_info=tile_info,
@@ -2179,6 +2299,9 @@ def main(arg_list):
                 lower_left=lower_left, srs=arg_list.srs,
                 imagery=arg_list.imagery, jpeg_quality=arg_list.q)
         sqlite_worker(files, extra_args, fs)
+
+    if hasBundles:
+        Bundle.closeAll()
 
     # Combine the individual temp databases into the output file
     with Geopackage(arg_list.output_file, arg_list.srs, tile_matrix) as gpkg:
