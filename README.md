@@ -29,7 +29,7 @@ Consortium](http://opengeospatial.org/standards/geopackage)
 * The Sricpt configures the Geopackage with the Conf.xml file from ESRI Tile Cache format automatically.
 * Added ability to package tiles stored in a s3 bucket. Use s3:// to package s3 directory.
 * Ability to give an initial extent for the content (for zoom to layer functions in common GIS).
-* Added ability to package tiles stored in ESRI Compact Cache V2.
+* Added ability to package tiles stored in ESRI Compact Cache V2 Bundles.
 
 ###Examples
 #### All levels of an exploded ArcGIS Cache (Script reads Conf.xml file from Cache).
