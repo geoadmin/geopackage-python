@@ -1921,8 +1921,12 @@ def worker_map(temp_db, tile_dict, extra_args, invert_y, fs):
             img = IOPEN(image_file)
             data = ioBuffer()
         else:
-            img = IOPEN(tile_dict['path'], 'r')
-            data = ioBuffer()
+	    if ".bundle" not in tile_dict['path']:
+                img = IOPEN(tile_dict['path'], 'r')
+                data = ioBuffer()
+	    else:
+		b = Bundle(tile_dict['path'].split('.bundle')[0]+'.bundle')
+                data = buffer(b.getTile(tile_dict['path'], tile_dict['z'], tile_dict['y'], tile_dict['x']))
 
         if imagery == 'mixed':
             if img_has_transparency(img):
