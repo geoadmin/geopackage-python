@@ -1928,13 +1928,15 @@ def worker_map(temp_db, tile_dict, extra_args, invert_y, fs):
 		b = Bundle(tile_dict['path'].split('.bundle')[0]+'.bundle')
                 data = buffer(b.getTile(tile_dict['path'], tile_dict['z'], tile_dict['y'], tile_dict['x']))
 
-        if imagery == 'mixed':
-            if img_has_transparency(img):
-                data = img_to_buf(img, 'png', jpeg_quality).read()
+	if ".bundle" not in tile_dict['path']:
+            if imagery == 'mixed':
+                if img_has_transparency(img):
+                    data = img_to_buf(img, 'png', jpeg_quality).read()
+                else:
+                    data = img_to_buf(img, 'jpeg', jpeg_quality).read()
             else:
-                data = img_to_buf(img, 'jpeg', jpeg_quality).read()
-        else:
-            data = img_to_buf(img, imagery, jpeg_quality).read()
+                data = img_to_buf(img, imagery, jpeg_quality).read()
+		
         temp_db.insert_image_blob(zoom, x_row, y_column, sbinary(data))
     else:
         if isinstance(fs, S3FileSystem):
