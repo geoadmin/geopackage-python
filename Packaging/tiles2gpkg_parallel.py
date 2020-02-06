@@ -100,8 +100,8 @@ class Bundle(object):
     def listFiles(self):
         files = []
         # Loop each Tile index and resolve if it has data
-        for row in range(0, 127):
-            for col in range(0, 127):
+        for row in range(0, 128):
+            for col in range(0, 128):
                 t_idx = self.b_index[128 * row + col]
                 t_size = int(math.floor(t_idx / Bundle.M))
 
